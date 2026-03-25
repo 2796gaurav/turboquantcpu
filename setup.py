@@ -19,7 +19,7 @@ from setuptools.command.build_ext import build_ext
 # Package metadata
 AUTHOR = "Gaurav Chauhan"
 AUTHOR_EMAIL = "2796gaurav@gmail.com"
-VERSION = "0.0.6"
+VERSION = "0.0.7"
 DESCRIPTION = "Near-optimal KV cache quantization for CPU LLM inference"
 
 

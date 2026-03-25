@@ -26,29 +26,31 @@ jobs:
     - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build
+        pip install build twine
     
     - name: Clean
       run: rm -rf dist build *.egg-info
     
-    - name: Build source distribution
-      run: python -m build --sdist
+    - name: Build package (sdist + wheel)
+      run: python -m build
+    
+    - name: Check package
+      run: twine check dist/*
     
     - name: Inspect package
       run: |
         echo "=== dist contents ==="
-        ls -l dist
+        ls -la dist/
         echo ""
-        echo "=== Extracting and checking PKG-INFO ==="
-        tar -xzf dist/*.tar.gz -C /tmp
-        find /tmp -name PKG-INFO -exec cat {} \;
-        echo ""
-        echo "=== Verifying version consistency ==="
-        echo "Filename:"
-        ls dist/*.tar.gz
-        echo ""
-        echo "Version from PKG-INFO:"
-        grep "^Version:" /tmp/*/PKG-INFO || true
+        echo "=== Verifying files ==="
+        for f in dist/*.tar.gz; do
+          echo "Checking sdist: $f"
+          tar -tzf "$f" | grep -E "PKG-INFO|METADATA" | head -5
+        done
+        for f in dist/*.whl; do
+          echo "Checking wheel: $f"
+          unzip -l "$f" | grep -E "METADATA|WHEEL" | head -5
+        done
     
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
