@@ -41,7 +41,8 @@ benchmarks/results/raw/
 benchmarks/reports/*.md
 benchmarks/reports/*.html
 benchmarks/reports/*.pdf
-benchmarks/plots/*.png
+# Ignore temporary plot files but keep the main benchmark plots
+# (The main 4 plots are tracked for README display)
 benchmarks/plots/*.pdf
 tmp/
 *.prof
