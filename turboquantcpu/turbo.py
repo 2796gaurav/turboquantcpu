@@ -58,9 +58,10 @@ __all__ = ["TurboMode", "TurboState", "TurboQuantizer"]
 # ── Mode ──────────────────────────────────────────────────────────────
 
 class TurboMode(str, Enum):
-    QJL  = "qjl"
-    MSE  = "mse"
-    PROD = "prod"     # recommended: unbiased inner product estimator
+    QJL   = "qjl"
+    MSE   = "mse"
+    PROD  = "prod"     # recommended: unbiased inner product estimator
+    POLAR = "polar"    # polar transformation for outlier resistance
 
 
 # ── Compressed state ─────────────────────────────────────────────────

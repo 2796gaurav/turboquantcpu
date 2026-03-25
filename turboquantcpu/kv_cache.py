@@ -26,6 +26,7 @@ import torch
 
 from .turbo       import TurboQuantizer, TurboMode, TurboState
 from .qjl         import QJLQuantizer, QJLState
+from .polar       import PolarQuantizer, PolarState
 from .value_quant import ValueQuantizer, ValueState, ValueMode
 from .sparse_attn import H2OConfig
 
@@ -338,15 +339,28 @@ class CompressedKVCache:
     def from_config(cls, config: CacheConfig) -> "CompressedKVCache":
         layers = []
         for i in range(config.num_layers):
-            kq = TurboQuantizer(
-                head_dim      = config.head_dim,
-                num_kv_heads  = config.num_kv_heads,
-                num_q_heads   = config.num_q_heads,
-                layer_idx     = i,
-                mode          = config.mode,
-                bits          = config.bits,
-                outlier_frac  = config.outlier_frac,
-            )
+            # Create key quantizer based on mode
+            if config.mode == "polar":
+                # PolarQuant uses different bit allocation (radius + angle)
+                # Default: 2 bits for radius, 2 bits for angle = 4 bits total per pair
+                kq = PolarQuantizer(
+                    head_dim      = config.head_dim,
+                    num_kv_heads  = config.num_kv_heads,
+                    num_q_heads   = config.num_q_heads,
+                    n_r_bits      = max(1, config.bits // 2),
+                    n_theta_bits  = max(1, config.bits // 2),
+                    layer_idx     = i,
+                )
+            else:
+                kq = TurboQuantizer(
+                    head_dim      = config.head_dim,
+                    num_kv_heads  = config.num_kv_heads,
+                    num_q_heads   = config.num_q_heads,
+                    layer_idx     = i,
+                    mode          = config.mode,
+                    bits          = config.bits,
+                    outlier_frac  = config.outlier_frac,
+                )
             vq = ValueQuantizer(
                 head_dim     = config.head_dim,
                 num_kv_heads = config.num_kv_heads,
