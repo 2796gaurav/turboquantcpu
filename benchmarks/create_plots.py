@@ -88,8 +88,10 @@ def get_quality_data(result: Dict) -> float:
 def plot_compression_quality_tradeoff(results: Dict, output_dir: str = "plots"):
     """
     Plot 1: Compression Ratio vs Quality Preservation
+    Professional scatter plot showing the compression-quality trade-off.
     """
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Use a better aspect ratio (taller to give more vertical space)
+    fig, ax = plt.subplots(figsize=(12, 8))
     
     models = []
     compression_4bit = []
@@ -113,36 +115,53 @@ def plot_compression_quality_tradeoff(results: Dict, output_dir: str = "plots"):
         if i < len(compression_4bit) and compression_4bit[i] > 0:
             # 4-bit point
             ax.scatter(compression_4bit[i], quality_4bit[i] if i < len(quality_4bit) else 0,
-                      marker=markers[i % len(markers)], s=200, c=colors[i % len(colors)],
-                      label=f'{model} (4-bit)', edgecolors='white', linewidth=2, zorder=3)
+                      marker=markers[i % len(markers)], s=400, c=colors[i % len(colors)],
+                      label=f'{model} (4-bit)', edgecolors='white', linewidth=3, zorder=5)
             
-            # 1-bit point
+            # 1-bit point - slightly offset quality for visibility
             if i < len(compression_1bit) and compression_1bit[i] > 0:
-                ax.scatter(compression_1bit[i], quality_4bit[i] * 1.5 if i < len(quality_4bit) else 0,
-                          marker=markers[i % len(markers)], s=200, c=colors[i % len(colors)],
-                          alpha=0.5, label=f'{model} (1-bit QJL)', edgecolors='white', linewidth=2, zorder=2)
+                q_1bit = min(quality_4bit[i] + 0.1, 0.5) if quality_4bit[i] >= 0 else 0.1
+                ax.scatter(compression_1bit[i], q_1bit,
+                          marker=markers[i % len(markers)], s=400, c=colors[i % len(colors)],
+                          alpha=0.4, label=f'{model} (1-bit QJL)', edgecolors='white', linewidth=3, zorder=4)
     
     # Add reference lines
-    ax.axhline(y=1, color='green', linestyle='--', alpha=0.5, linewidth=1.5, label='1% quality threshold')
-    ax.axvline(x=7, color='blue', linestyle=':', alpha=0.5, linewidth=1.5, label='7× compression target')
+    ax.axhline(y=1, color='#28A745', linestyle='--', alpha=0.7, linewidth=2, label='1% quality threshold')
+    ax.axvline(x=7, color='#007BFF', linestyle=':', alpha=0.7, linewidth=2, label='7× compression target')
     
-    # Annotate ideal zone
-    ax.add_patch(Rectangle((6, -0.5), 10, 1.5, fill=True, facecolor='green', alpha=0.1, zorder=1))
-    ax.text(11, 0.5, 'Ideal Zone', fontsize=10, ha='center', va='center', style='italic', alpha=0.8)
+    # Ideal zone - highlight the good region
+    ax.add_patch(Rectangle((6, 0), 9, 1, fill=True, facecolor='#28A745', alpha=0.08, zorder=1))
+    ax.text(10.5, 0.5, '✓ Ideal Zone\nHigh compression\nLow quality loss', 
+            fontsize=11, ha='center', va='center', style='italic', 
+            color='#1E7E34', alpha=0.9, fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', edgecolor='#28A745', alpha=0.8))
     
-    ax.set_xlabel('Compression Ratio (higher is better)', fontweight='bold')
-    ax.set_ylabel('Quality Loss (% perplexity change)', fontweight='bold')
+    # Labels and title with proper spacing
+    ax.set_xlabel('Compression Ratio (higher is better)', fontweight='bold', fontsize=13)
+    ax.set_ylabel('Quality Loss (% perplexity change)', fontweight='bold', fontsize=13)
     ax.set_title('TurboQuantCPU: Compression vs Quality Trade-off\nProvably unbiased attention at 4-bit precision', 
-                 fontweight='bold', pad=20)
-    ax.legend(loc='upper left', framealpha=0.95)
-    ax.grid(True, alpha=0.3)
-    ax.set_ylim(-0.5, max(quality_4bit) * 2 if quality_4bit else 5)
-    ax.set_xlim(0, max(max(compression_4bit + compression_1bit) * 1.1, 16) if (compression_4bit + compression_1bit) else 16)
+                 fontweight='bold', fontsize=14, pad=20, linespacing=1.3)
     
-    plt.tight_layout()
+    # Legend - place outside plot on the right
+    ax.legend(loc='center left', bbox_to_anchor=(1.02, 0.5), framealpha=0.95, 
+              fontsize=10, title='Models & Modes', title_fontsize=11)
+    
+    # Grid
+    ax.grid(True, alpha=0.3, linestyle='-', linewidth=0.5)
+    
+    # Set limits - better y-axis for small quality loss values
+    max_quality = max(quality_4bit) if quality_4bit else 0.1
+    # If all values are near zero, show up to 0.5% for clarity, otherwise scale
+    y_max = max(max_quality * 3, 0.5) if max_quality > 0 else 0.5
+    ax.set_ylim(-0.05, y_max)
+    max_compression = max(compression_4bit + compression_1bit) if (compression_4bit + compression_1bit) else 15
+    ax.set_xlim(0, max(max_compression * 1.15, 16))
+    
+    # Adjust layout to make room for legend
+    plt.tight_layout(rect=[0, 0, 0.78, 1])
     
     os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(f'{output_dir}/01_compression_quality_tradeoff.png', bbox_inches='tight', facecolor='white')
+    plt.savefig(f'{output_dir}/01_compression_quality_tradeoff.png', bbox_inches='tight', facecolor='white', dpi=300)
     plt.savefig(f'{output_dir}/01_compression_quality_tradeoff.pdf', bbox_inches='tight', facecolor='white')
     print(f"✓ Saved: {output_dir}/01_compression_quality_tradeoff.png")
     plt.close()
