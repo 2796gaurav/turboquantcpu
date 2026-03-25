@@ -24,7 +24,7 @@ Reference:
   https://arxiv.org/abs/2504.19874
 """
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 __author__ = "TurboQuantCPU Contributors"
 
 # Core quantizers
