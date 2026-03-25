@@ -123,7 +123,7 @@ Tested on Intel i7-1255U (12th Gen, 10 cores) with 3 HF models:
 
 ### Compression vs Quality Trade-off
 
-![Compression vs Quality](benchmarks/plots/01_compression_quality_tradeoff.png)
+![Compression vs Quality](https://raw.githubusercontent.com/2796gaurav/turboquantcpu/main/benchmarks/plots/01_compression_quality_tradeoff.png)
 
 **What this plot shows:**
 - **X-axis**: Compression ratio (higher = more memory savings)
@@ -138,7 +138,7 @@ Tested on Intel i7-1255U (12th Gen, 10 cores) with 3 HF models:
 
 ### Speed Comparison
 
-![Speed Overhead](benchmarks/plots/02_speed_overhead.png)
+![Speed Overhead](https://raw.githubusercontent.com/2796gaurav/turboquantcpu/main/benchmarks/plots/02_speed_overhead.png)
 
 **What this plot shows:**
 - **Positive bars**: Slower than FP16 baseline (decompression overhead)
@@ -151,7 +151,7 @@ Tested on Intel i7-1255U (12th Gen, 10 cores) with 3 HF models:
 
 ### Long-Context Retrieval
 
-![Needle in Haystack](benchmarks/plots/03_needle_in_haystack.png)
+![Needle in Haystack](https://raw.githubusercontent.com/2796gaurav/turboquantcpu/main/benchmarks/plots/03_needle_in_haystack.png)
 
 **What this plot shows:**
 - **Test**: Hide a "needle" (specific fact) at various depths in a long document
@@ -164,7 +164,7 @@ Tested on Intel i7-1255U (12th Gen, 10 cores) with 3 HF models:
 
 ### Competitor Comparison
 
-![Competitor Comparison](benchmarks/plots/04_competitor_comparison.png)
+![Competitor Comparison](https://raw.githubusercontent.com/2796gaurav/turboquantcpu/main/benchmarks/plots/04_competitor_comparison.png)
 
 **What this plot shows:**
 - Position of each method in the compression-quality space
