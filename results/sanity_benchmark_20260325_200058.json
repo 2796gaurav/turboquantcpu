@@ -1,0 +1,75 @@
+{
+  "timestamp": "2026-03-25T20:00:58.089316",
+  "results": [
+    {
+      "model": "Qwen3.5-0.8B",
+      "config": {
+        "name": "Qwen/Qwen3.5-0.8B",
+        "params": "0.8B",
+        "layers": 24,
+        "kv_heads": 2,
+        "head_dim": 128,
+        "license": "Apache 2.0"
+      },
+      "load": {
+        "time_s": 1774448944.198684,
+        "memory_mb": 4592.875
+      },
+      "baseline": {
+        "avg_time_s": 4.782607873280843
+      },
+      "turboquant_4bit": {
+        "avg_time_s": 4.935561180114746,
+        "overhead_pct": 3.198115147353242,
+        "kv_cache_mb": 0.509856,
+        "compression_ratio": 7.326680474486914
+      },
+      "turboquant_1bit": {
+        "avg_time_s": 4.6503251393636065,
+        "overhead_pct": -2.7659121847781964,
+        "kv_cache_mb": 0.279072,
+        "compression_ratio": 13.385620915032682
+      },
+      "quality": {
+        "perplexity_baseline": 17.45571517944336,
+        "perplexity_4bit": 17.45571517944336,
+        "difference_pct": 0.0
+      }
+    },
+    {
+      "model": "Llama-3.2-1B",
+      "config": {
+        "name": "meta-llama/Llama-3.2-1B",
+        "params": "1B",
+        "layers": 16,
+        "kv_heads": 8,
+        "head_dim": 64,
+        "license": "Llama 3.2 Community"
+      },
+      "load": {
+        "time_s": 1774448997.5599794,
+        "memory_mb": 4313.97265625
+      },
+      "baseline": {
+        "avg_time_s": 5.749905904134114
+      },
+      "turboquant_4bit": {
+        "avg_time_s": 7.107321103413899,
+        "overhead_pct": 23.60760718369008,
+        "kv_cache_mb": 1.448064,
+        "compression_ratio": 1.7876778926898258
+      },
+      "turboquant_1bit": {
+        "avg_time_s": 6.640261014302571,
+        "overhead_pct": 15.484690097768429,
+        "kv_cache_mb": 0.778752,
+        "compression_ratio": 3.324128862590401
+      },
+      "quality": {
+        "perplexity_baseline": 7.051145553588867,
+        "perplexity_4bit": 7.051145553588867,
+        "difference_pct": 0.0
+      }
+    }
+  ]
+}

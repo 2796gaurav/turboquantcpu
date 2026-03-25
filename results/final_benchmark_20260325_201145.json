@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "model": "Qwen3.5-0.8B",
+      "config": {
+        "name": "Qwen/Qwen3.5-0.8B",
+        "params": "0.8B",
+        "layers": 24,
+        "kv_heads": 2,
+        "head_dim": 128,
+        "license": "Apache 2.0",
+        "highlight": "1-bit FASTER than FP16"
+      },
+      "baseline_time": 5.3370974858601885,
+      "4bit": {
+        "time": 4.761949936548869,
+        "overhead_pct": -10.776410789480305,
+        "compression": 7.289713645816669,
+        "memory_mb": 0.600096
+      },
+      "1bit": {
+        "time": 4.626396179199219,
+        "overhead_pct": -13.316251174797955,
+        "compression": 13.461245891953768,
+        "memory_mb": 0.324972
+      },
+      "quality": {
+        "baseline_ppl": 17.45571517944336,
+        "4bit_ppl": 17.45571517944336,
+        "diff_pct": 0.0
+      }
+    },
+    {
+      "model": "Llama-3.2-1B",
+      "config": {
+        "name": "meta-llama/Llama-3.2-1B",
+        "params": "1B",
+        "layers": 16,
+        "kv_heads": 8,
+        "head_dim": 64,
+        "license": "Llama 3.2 Community",
+        "highlight": "Strong compression, moderate overhead"
+      },
+      "baseline_time": 6.843684275945027,
+      "4bit": {
+        "time": 7.308396657307942,
+        "overhead_pct": 6.790383112738563,
+        "compression": 1.7874924104432302,
+        "memory_mb": 1.686528
+      },
+      "1bit": {
+        "time": 7.017871697743733,
+        "overhead_pct": 2.545228779927222,
+        "compression": 3.3090270460133477,
+        "memory_mb": 0.91104
+      },
+      "quality": {
+        "baseline_ppl": 7.051145553588867,
+        "4bit_ppl": 7.051145553588867,
+        "diff_pct": 0.0
+      }
+    }
+  ]
+}

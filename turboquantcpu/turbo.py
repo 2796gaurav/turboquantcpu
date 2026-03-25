@@ -64,6 +64,31 @@ class TurboMode(str, Enum):
     POLAR = "polar"    # polar transformation for outlier resistance
 
 
+# ── Sliding Window Config (KIVI-style optimization) ────────────────────
+
+@dataclass
+class SlidingWindowConfig:
+    """
+    KIVI-style sliding window quantization for better generation quality.
+    
+    Recent tokens are kept in full precision (FP16), while older tokens
+    are aggressively compressed. This preserves local attention quality.
+    
+    Reference: "KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache"
+               (Liu et al., ICML 2024)
+    
+    Args:
+        window_size: Number of recent tokens to keep in FP16 (default: 64)
+        enabled: Whether to use sliding window quantization
+    """
+    window_size: int = 64  # Tokens to keep in FP16
+    enabled: bool = False
+    
+    def __post_init__(self):
+        if self.window_size < 0:
+            self.window_size = 0
+
+
 # ── Compressed state ─────────────────────────────────────────────────
 
 @dataclass
@@ -168,6 +193,7 @@ class TurboQuantizer:
         bits:         int = 4,
         outlier_frac: float = 0.0,
         n_threads:    int = 0,
+        sliding_window: Optional[SlidingWindowConfig] = None,
     ):
         self.head_dim     = head_dim
         self.num_kv_heads = num_kv_heads
@@ -176,6 +202,7 @@ class TurboQuantizer:
         self.mode         = TurboMode(mode)
         self.bits         = bits
         self.outlier_frac = outlier_frac
+        self.sliding_window = sliding_window or SlidingWindowConfig(enabled=False)
 
         self.head_dim_p2 = 1 << max(1, (head_dim-1).bit_length())
         self._coord_scale = math.sqrt(self.head_dim_p2)  # normalise to N(0,1)

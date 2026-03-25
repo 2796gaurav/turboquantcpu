@@ -115,96 +115,94 @@ def _wrap_attention_forward(module, cache: CompressedKVCache, layer_idx: int):
     """
     original_forward = module.forward
     
-    # Get model config for dimensions
-    # Try various attribute names used by different models
-    def get_num_kv_heads():
-        # Try common attribute names
-        for attr in ['num_key_value_heads', 'num_kv_heads', 'kv_heads']:
-            if hasattr(module, attr):
-                val = getattr(module, attr)
-                if val is not None:
-                    return val
-        # Infer from k_proj weight shape
-        if hasattr(module, 'k_proj'):
-            # k_proj weight shape: (num_kv_heads * head_dim, hidden_size)
-            # We need to determine num_kv_heads and head_dim
-            hidden_size = module.k_proj.weight.shape[1]
-            kv_dim = module.k_proj.weight.shape[0]
-            # Try to infer from config if available
-            if hasattr(module, 'head_dim'):
-                head_dim = module.head_dim
-                return kv_dim // head_dim
-        return 1
+    # Get model config for dimensions from module attributes
+    num_kv_heads = getattr(module, 'num_key_value_heads', 
+                          getattr(module, 'num_kv_heads', 
+                                 getattr(module, 'kv_heads', 1)))
+    head_dim = getattr(module, 'head_dim', None)
     
-    def get_head_dim():
-        if hasattr(module, 'head_dim'):
-            return module.head_dim
-        if hasattr(module, 'k_proj'):
-            # k_proj output dimension = num_kv_heads * head_dim
-            # For GQA models, this is typically hidden_size // num_attention_heads
-            hidden_size = module.k_proj.weight.shape[1]
-            num_attn_heads = getattr(module, 'num_heads', 
-                          getattr(module, 'num_attention_heads', 1))
-            if num_attn_heads:
-                return hidden_size // num_attn_heads
-        return 64  # Default
+    # For Llama models, infer from k_proj if needed
+    if head_dim is None and hasattr(module, 'k_proj'):
+        hidden_size = module.k_proj.weight.shape[1]
+        num_attn_heads = getattr(module, 'num_heads', 
+                      getattr(module, 'num_attention_heads', 1))
+        if num_attn_heads:
+            head_dim = hidden_size // num_attn_heads
     
-    num_kv_heads = get_num_kv_heads()
-    head_dim = get_head_dim()
+    if head_dim is None:
+        head_dim = 64  # Default
     
     def wrapped_forward(*args, **kwargs):
         # Call original forward
         outputs = original_forward(*args, **kwargs)
         
-        # Try to extract K, V from the module's internal state
+        # Try to extract K, V from the module's internal state after forward
         k = v = None
         
-        # Method 1: Check if k_proj and v_proj outputs are stored
-        if hasattr(module, '_k_proj_output') and hasattr(module, '_v_proj_output'):
-            k = module._k_proj_output
-            v = module._v_proj_output
+        # Method 1: For Llama-style models, check for k_proj/v_proj cached values
+        # Some models store these during forward pass
+        if hasattr(module, 'k_proj') and hasattr(module, 'v_proj'):
+            # Try to get from module's internal cache (set by some models)
+            k = getattr(module, '_k_cache', None)
+            v = getattr(module, '_v_cache', None)
         
-        # Method 2: Check for k_proj and v_proj, compute manually if needed
+        # Method 2: Extract from past_key_values if present in outputs
+        if k is None and hasattr(outputs, 'past_key_values') and outputs.past_key_values is not None:
+            try:
+                # past_key_values is a tuple of (key, value) tuples per layer
+                if layer_idx < len(outputs.past_key_values):
+                    past_kv = outputs.past_key_values[layer_idx]
+                    if past_kv is not None and len(past_kv) == 2:
+                        k, v = past_kv
+            except (IndexError, TypeError):
+                pass
+        
+        # Method 3: Compute K, V from hidden states (fallback - has overhead)
         if k is None and hasattr(module, 'k_proj') and hasattr(module, 'v_proj'):
-            # Try to get hidden states from inputs
-            if len(args) >= 1:
+            # Only do this if we can get hidden states efficiently
+            hidden_states = None
+            
+            # Try to extract from args/kwargs
+            if len(args) >= 1 and isinstance(args[0], torch.Tensor):
                 hidden_states = args[0]
             elif 'hidden_states' in kwargs:
                 hidden_states = kwargs['hidden_states']
-            else:
-                hidden_states = None
             
+            # Only compute if we have hidden states AND haven't processed this batch before
+            # Use a simple cache key based on tensor properties
             if hidden_states is not None:
-                try:
-                    with torch.no_grad():
-                        k = module.k_proj(hidden_states)
-                        v = module.v_proj(hidden_states)
-                except Exception as e:
-                    # Silently fail - model may use different attention mechanism
-                    pass
-        
-        # Method 3: Try to extract from output attentions if available
-        if k is None and hasattr(outputs, 'attentions') and outputs.attentions is not None:
-            # Some models return attention weights that we can use
-            pass  # Not implemented - would need to reconstruct K from attention
+                cache_key = f"{hidden_states.shape}_{hidden_states.device}_{id(hidden_states)}"
+                last_key = getattr(module, '_tqcpu_last_key', None)
+                
+                if cache_key != last_key:
+                    try:
+                        # Compute K, V without gradient tracking
+                        with torch.no_grad():
+                            k = module.k_proj(hidden_states)
+                            v = module.v_proj(hidden_states)
+                        module._tqcpu_last_key = cache_key
+                    except Exception:
+                        pass
         
         # Process and store if we have K and V
         if k is not None and v is not None:
             try:
-                # Reshape based on expected dimensions
-                # Most models: (batch, seq, num_heads * head_dim) -> (batch, num_heads, seq, head_dim)
+                nonlocal num_kv_heads, head_dim
+                
+                # Determine dimensions dynamically
+                if num_kv_heads is None or num_kv_heads == 1:
+                    if k.shape[-1] % head_dim == 0:
+                        num_kv_heads = k.shape[-1] // head_dim
+                    else:
+                        num_kv_heads = 1
+                
+                # Reshape: (batch, seq, num_heads * head_dim) -> (batch, num_heads, seq, head_dim)
                 if k.ndim == 3:
                     batch, seq_len, _ = k.shape
-                    nonlocal num_kv_heads, head_dim
-                    
-                    # Recalculate if needed
-                    if num_kv_heads is None or num_kv_heads == 1:
-                        num_kv_heads = k.shape[-1] // head_dim
-                    
                     k = k.view(batch, seq_len, num_kv_heads, head_dim).transpose(1, 2)
                     v = v.view(batch, seq_len, num_kv_heads, head_dim).transpose(1, 2)
                 
-                # Convert to (seq, num_heads, head_dim) for batch=0
+                # Convert to (seq, num_heads, head_dim) for batch=0 and store
                 if k.ndim == 4:
                     k_sqhd = k[0].permute(1, 0, 2).contiguous().detach().cpu()
                     v_sqhd = v[0].permute(1, 0, 2).contiguous().detach().cpu()
