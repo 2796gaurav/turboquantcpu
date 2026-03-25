@@ -19,7 +19,7 @@ from setuptools.command.build_ext import build_ext
 # Package metadata
 AUTHOR = "Gaurav Chauhan"
 AUTHOR_EMAIL = "2796gaurav@gmail.com"
-VERSION = "0.0.14"
+VERSION = "0.0.15"
 DESCRIPTION = "Near-optimal KV cache quantization for CPU LLM inference"
 
 
@@ -206,6 +206,7 @@ setup(
         "Programming Language :: C",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
         "Operating System :: OS Independent",
+    ],
     keywords=[
         "llm", "quantization", "kv-cache", "inference", "cpu", "simd",
         "avx512", "turboquant", "qjl", "transformers", "memory-optimization",
