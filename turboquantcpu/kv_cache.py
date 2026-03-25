@@ -8,7 +8,7 @@ CompressedKVCache
         ├── TurboState (compressed keys)
         └── ValueState (quantized values)
 
-New in v0.3.0 vs v0.2.0:
+New in v0.0.1:
   • Paged memory: pre-allocate pages to avoid realloc on each token
   • Value quantization: INT8/INT4 values (not just raw FP16)
   • H2O eviction: integrated sparse attention eviction
