@@ -20,8 +20,6 @@ dynamic = [
     "urls",
     "dependencies",
     "optional-dependencies",
-    "entry-points",
-    "scripts",
 ]
 
 # -- Setuptools-specific configuration ------------------------------------

@@ -34,11 +34,8 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest numpy scipy torch
     
-    - name: Build C extensions
-      run: python setup.py build_ext --inplace
-    
     - name: Install package
-      run: pip install -e .
+      run: pip install -e ".[dev]"
     
     - name: Run tests
       run: pytest tests/ -v --tb=short
@@ -63,9 +60,7 @@ jobs:
         pip install pytest numpy scipy torch matplotlib
     
     - name: Build and install
-      run: |
-        python setup.py build_ext --inplace
-        pip install -e .
+      run: pip install -e .
     
     - name: Run benchmarks
       run: python benchmarks/run_all_benchmarks.py
