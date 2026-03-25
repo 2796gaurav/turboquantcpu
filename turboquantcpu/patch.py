@@ -242,7 +242,7 @@ def patch_model(
         h = mod.register_forward_hook(_make_kv_hook(cache, layer_idx))
         model._tqcpu_hooks.append(h)
         if verbose:
-            print(f"  ✓  layer {layer_idx:3d}: {name}")
+            print(f"  [OK]  layer {layer_idx:3d}: {name}")
 
     model._tqcpu_cache = cache
 
@@ -258,7 +258,7 @@ def patch_model(
         print(f"    Original FP16  : {orig:.1f} MB")
         print(f"    Compressed ({bpe:.1f}b): {comp:.1f} MB")
         print(f"    Ratio          : {ratio:.1f}×")
-        print(f"\n[TurboQuantCPU] {len(model._tqcpu_hooks)} layers patched ✓\n")
+        print(f"\n[TurboQuantCPU] {len(model._tqcpu_hooks)} layers patched [OK]\n")
 
     return cache
 

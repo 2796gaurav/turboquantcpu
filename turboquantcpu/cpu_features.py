@@ -242,12 +242,12 @@ def cpu_info() -> CPUInfo:
     return info
 
 
-_BAR = "═" * 52
+_BAR = "=" * 52
 
 def print_cpu_capabilities() -> None:
     ci = cpu_info()
     print(_BAR)
-    print("  TurboQuantCPU v0.0.2 — Host CPU Capabilities")
+    print("  TurboQuantCPU v0.0.2 - Host CPU Capabilities")
     print(_BAR)
     print(f"  CPU     : {ci.brand}")
     print(f"  Arch    : {ci.arch}  ({ci.vendor})")
@@ -271,7 +271,7 @@ def print_cpu_capabilities() -> None:
         ("ARM SVE2",       ci.has_sve2),
     ]
     for name, has in feats:
-        print(f"  {'✓' if has else '·'}  {name}")
+        print(f"  {'[Y]' if has else '[N]'}  {name}")
     print()
     print(f"  FWHT speedup estimate: ~{ci.fwht_speedup_estimate:.0f}× vs scalar")
     print(_BAR)

@@ -81,7 +81,7 @@ class TurboQuantBenchmarks:
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
         
-        print(f"\n✓ Results saved to: {filepath}")
+        print(f"\n[OK] Results saved to: {filepath}")
         return filepath
     
     def _timeit(self, func, repeats: int = 10, warmup: int = 3) -> Tuple[float, float]:
@@ -125,7 +125,7 @@ class TurboQuantBenchmarks:
             )
             self.results.append(result)
             results[f"self_inverse_d{d}"] = max_err
-            print(f"  d={d:3d}: max_error={max_err:.3e} {'✓' if max_err < 1e-4 else '✗'}")
+            print(f"  d={d:3d}: max_error={max_err:.3e} {'[OK]' if max_err < 1e-4 else '[FAIL]'}")
         
         # Test 2: Norm preservation
         for d in [64, 128, 256]:
@@ -144,7 +144,7 @@ class TurboQuantBenchmarks:
             )
             self.results.append(result)
             results[f"norm_preservation_d{d}"] = rel_err
-            print(f"  d={d:3d}: norm_error={rel_err:.3e} {'✓' if rel_err < 1e-4 else '✗'}")
+            print(f"  d={d:3d}: norm_error={rel_err:.3e} {'[OK]' if rel_err < 1e-4 else '[FAIL]'}")
         
         return results
     
@@ -248,7 +248,7 @@ class TurboQuantBenchmarks:
                 "is_unbiased": abs(mean_bias) < 0.1
             }
             
-            status = "✓" if abs(mean_bias) < 0.1 else "✗"
+            status = "[OK]" if abs(mean_bias) < 0.1 else "[FAIL]"
             print(f"  d={head_dim}, h={num_heads}, seq={seq_len:4d}: "
                   f"bias={mean_bias:+.4f}±{std_bias:.4f}, mae={mean_mae:.4f} {status}")
         
@@ -420,9 +420,9 @@ class TurboQuantBenchmarks:
     
     def run_all(self):
         """Run all benchmarks."""
-        print("\n" + "╔" + "="*68 + "╗")
+        print("\n" + "+" + "="*68 + "+")
         print("║" + " "*15 + "TurboQuantCPU Benchmark Suite" + " "*24 + "║")
-        print("╚" + "="*68 + "╝")
+        print("+" + "="*68 + "+")
         
         print(f"\nSystem: {self.cpu_info.brand}")
         print(f"SIMD: {self.cpu_info.best_simd}")

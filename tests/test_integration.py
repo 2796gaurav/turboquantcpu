@@ -245,7 +245,7 @@ class TestCPUSpecific:
         
         assert info.num_cores > 0
         assert info.num_threads >= info.num_cores
-        assert info.best_simd in ["AVX512-VNNI", "AVX-512F", "AVX2+FMA", "AVX2", "NEON", "scalar"]
+        assert info.best_simd in ["AMX-INT8", "AVX512-VNNI", "AVX-512F", "AVX2+FMA", "AVX2", "NEON", "scalar"]
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ class ComprehensiveBenchmark:
         with open(filepath, 'w') as f:
             json.dump(data, f, indent=2)
         
-        print(f"\n✓ Results saved to: {filepath}")
+        print(f"\n[OK] Results saved to: {filepath}")
         return filepath
     
     def _timeit(self, func, repeats: int = 10, warmup: int = 3) -> Tuple[float, float]:
@@ -149,7 +149,7 @@ class ComprehensiveBenchmark:
             )
             self.results.append(result)
             results[f"fwht_d{d}"] = max_err
-            status = "✓" if max_err < 1e-4 else "✗"
+            status = "[OK]" if max_err < 1e-4 else "[FAIL]"
             print(f"  FWHT self-inverse d={d:3d}: {max_err:.3e} {status}")
         
         # QJL unbiasedness
@@ -178,7 +178,7 @@ class ComprehensiveBenchmark:
                 metadata={"seq_len": seq_len}
             )
             self.results.append(result)
-            status = "✓" if abs(mean_bias) < 0.1 else "✗"
+            status = "[OK]" if abs(mean_bias) < 0.1 else "[FAIL]"
             print(f"  QJL unbiasedness seq={seq_len:5d}: bias={mean_bias:+.4f}±{std_bias:.4f} {status}")
         
         return results
@@ -270,7 +270,7 @@ class ComprehensiveBenchmark:
         plt.tight_layout()
         plt.savefig(os.path.join(PLOTS_DIR, 'compression_ratios.png'), dpi=150)
         plt.close()
-        print(f"  ✓ Saved compression plot")
+        print(f"  [OK] Saved compression plot")
     
     def benchmark_speed(self) -> Dict[str, Any]:
         """Benchmark inference speed."""
@@ -351,7 +351,7 @@ class ComprehensiveBenchmark:
         plt.tight_layout()
         plt.savefig(os.path.join(PLOTS_DIR, 'speed_comparison.png'), dpi=150)
         plt.close()
-        print(f"  ✓ Saved speed plot")
+        print(f"  [OK] Saved speed plot")
     
     def benchmark_quality(self) -> Dict[str, Any]:
         """Benchmark quality (accuracy vs baseline)."""
@@ -453,7 +453,7 @@ class ComprehensiveBenchmark:
         plt.tight_layout()
         plt.savefig(os.path.join(PLOTS_DIR, 'quality_comparison.png'), dpi=150)
         plt.close()
-        print(f"  ✓ Saved quality plot")
+        print(f"  [OK] Saved quality plot")
     
     def benchmark_long_context(self) -> Dict[str, Any]:
         """Benchmark long context behavior."""
@@ -526,7 +526,7 @@ class ComprehensiveBenchmark:
         plt.tight_layout()
         plt.savefig(os.path.join(PLOTS_DIR, 'long_context_scaling.png'), dpi=150)
         plt.close()
-        print(f"  ✓ Saved long context plot")
+        print(f"  [OK] Saved long context plot")
     
     def benchmark_real_models(self) -> Dict[str, Any]:
         """Benchmark with real model configurations."""
@@ -619,7 +619,7 @@ class ComprehensiveBenchmark:
         plt.tight_layout()
         plt.savefig(os.path.join(PLOTS_DIR, 'model_comparison.png'), dpi=150)
         plt.close()
-        print(f"  ✓ Saved model comparison plot")
+        print(f"  [OK] Saved model comparison plot")
     
     def generate_summary(self):
         """Generate summary report."""

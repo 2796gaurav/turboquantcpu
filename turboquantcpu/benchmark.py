@@ -38,8 +38,8 @@ MODEL_CONFIGS = {
     "Gemma-2-9B":       dict(layers=42, kv=8,   q=16,  d=256),
 }
 
-PASS = "✓ PASS"
-FAIL = "✗ FAIL"
+PASS = "[PASS]"
+FAIL = "[FAIL]"
 
 
 # ── 1. Correctness ────────────────────────────────────────────────────
@@ -69,9 +69,9 @@ def run_correctness_check(
     results: Dict[str, float] = {}
 
     if verbose:
-        print("\n" + "═"*65)
-        print("  TurboQuantCPU v0.0.2 — Correctness Check")
-        print("═"*65)
+        print("\n" + "="*65)
+        print("  TurboQuantCPU v0.0.2 - Correctness Check")
+        print("="*65)
 
     d_p2 = 1 << (head_dim-1).bit_length()
 
@@ -196,12 +196,12 @@ def benchmark_memory(
     model_names = models or list(MODEL_CONFIGS.keys())
 
     if verbose:
-        print("\n" + "═"*82)
-        print("  Memory (Keys Only, MB per model) — Compression vs FP16")
-        print("═"*82)
+        print("\n" + "="*82)
+        print("  Memory (Keys Only, MB per model) - Compression vs FP16")
+        print("="*82)
         print(f"  {'Model':<22} {'Seq':>8}  {'FP16':>7}  {'Q4K_M':>7}  "
               f"{'KIVI2b':>7}  {'QJL1b':>7}  {'Turbo4b':>8}  {'Ratio':>6}")
-        print("─"*82)
+        print("-"*82)
 
     results = {}
     for mname in model_names:
@@ -305,9 +305,9 @@ def benchmark_speed(
     })
 
     if verbose:
-        print("\n" + "═"*65)
+        print("\n" + "="*65)
         print(f"  Speed Benchmark  seq={seq_len:,}  heads={num_heads}  dim={head_dim}")
-        print("═"*65)
+        print("="*65)
         print(f"  Baseline FP32          : {t_f32:>8.3f} ms")
         print(f"  Baseline FP16          : {t_f16:>8.3f} ms")
         print(f"  QJL 1-bit              : {t_qjl:>8.3f} ms  "
@@ -379,9 +379,9 @@ def run_full_benchmark(
     verbose:   bool = True,
 ) -> Dict[str, dict]:
     """Run all benchmarks and print a combined report."""
-    print("\n╔" + "═"*63 + "╗")
-    print("║   TurboQuantCPU v0.0.2 — Full Benchmark Suite" + " "*16 + "║")
-    print("╚" + "═"*63 + "╝")
+    print("\n+" + "="*63 + "+")
+    print("|   TurboQuantCPU v0.0.2 - Full Benchmark Suite" + " "*16 + "|")
+    print("+" + "="*63 + "+")
 
     from turboquantcpu.cpu_features import print_cpu_capabilities
     print_cpu_capabilities()
@@ -396,9 +396,9 @@ def run_full_benchmark(
 
     # Print summary
     llama_8b = memory.get("Llama-3.1-8B", {}).get(4096, {})
-    print("\n" + "═"*65)
+    print("\n" + "="*65)
     print("  SUMMARY")
-    print("═"*65)
+    print("="*65)
     print(f"  QJL bias              : {correctness.get('qjl_mean_abs_bias', 0):.5f} (ideal 0)")
     qpr = correctness.get("prod_4bit_bias") or correctness.get("prod_4bit_bias", 0)
     print(f"  PROD-4bit bias        : {qpr:.5f}")

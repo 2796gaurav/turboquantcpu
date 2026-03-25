@@ -150,9 +150,9 @@ def example_memory_report():
 def main():
     """Run all examples."""
     print("\n")
-    print("╔" + "═" * 58 + "╗")
+    print("+" + "=" * 58 + "+")
     print("║" + " " * 12 + "TurboQuantCPU Examples" + " " * 24 + "║")
-    print("╚" + "═" * 58 + "╝")
+    print("+" + "=" * 58 + "+")
     print("\n")
     
     # Show CPU capabilities
