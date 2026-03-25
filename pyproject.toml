@@ -2,6 +2,29 @@
 requires = ["setuptools<69", "wheel<0.42", "numpy>=1.24"]
 build-backend = "setuptools.build_meta"
 
+# -- Project metadata (required by modern setuptools validation) -----------
+# Most fields are declared dynamic so setup.py remains the authoritative
+# source (needed for the custom OptionalBuildExt C-extension logic).
+[project]
+name = "turboquantcpu"
+dynamic = [
+    "version",
+    "description",
+    "readme",
+    "license",
+    "requires-python",
+    "authors",
+    "maintainers",
+    "keywords",
+    "classifiers",
+    "urls",
+    "dependencies",
+    "optional-dependencies",
+    "entry-points",
+    "scripts",
+]
+
+# -- Setuptools-specific configuration ------------------------------------
 [tool.setuptools]
 packages = [
     "turboquantcpu",
@@ -16,6 +39,7 @@ zip-safe = false
 [tool.setuptools.package-data]
 turboquantcpu = ["_kernels/*.c", "_kernels/*.so", "_kernels/*.dylib", "_kernels/*.dll"]
 
+# -- Tool configuration ---------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"

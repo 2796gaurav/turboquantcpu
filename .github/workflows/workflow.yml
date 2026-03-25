@@ -29,7 +29,9 @@ jobs:
         pip install "setuptools<69" "wheel<0.42" build twine
     
     - name: Clean
-      run: rm -rf dist build *.egg-info
+      run: |
+        rm -rf dist build
+        find . -maxdepth 1 -name '*.egg-info' -exec rm -rf {} + 2>/dev/null || true
     
     - name: Build source distribution only
       run: python -m build --sdist
