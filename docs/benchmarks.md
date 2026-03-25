@@ -9,7 +9,7 @@ All benchmarks are reproducible and run on standardized hardware.
 - **Cores**: 10 physical / 12 logical
 - **RAM**: 16 GB DDR4
 - **Python**: 3.11
-- **TurboQuantCPU**: v0.0.3
+- **TurboQuantCPU**: v0.0.4
 
 ## Memory Compression
 
