@@ -31,8 +31,8 @@ jobs:
     - name: Clean
       run: rm -rf dist build *.egg-info
     
-    - name: Build package (sdist + wheel)
-      run: python -m build
+    - name: Build source distribution only
+      run: python -m build --sdist
     
     - name: Check package
       run: twine check dist/*
@@ -42,18 +42,12 @@ jobs:
         echo "=== dist contents ==="
         ls -la dist/
         echo ""
-        echo "=== Verifying files ==="
-        for f in dist/*.tar.gz; do
-          echo "Checking sdist: $f"
-          tar -tzf "$f" | grep -E "PKG-INFO|METADATA" | head -5
-        done
-        for f in dist/*.whl; do
-          echo "Checking wheel: $f"
-          unzip -l "$f" | grep -E "METADATA|WHEEL" | head -5
-        done
+        echo "=== Verifying sdist ==="
+        tar -tzf dist/*.tar.gz | grep -E "PKG-INFO|METADATA|setup.py|pyproject.toml" | head -10
     
     - name: Publish to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         skip-existing: true
         print-hash: true
+        attestations: false
