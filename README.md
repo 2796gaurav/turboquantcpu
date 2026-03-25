@@ -75,6 +75,8 @@ print(f"Compressed: {report['compressed_MB']:.1f} MB")
 # Example: Compression: 7.3×, Original: 25.2 MB, Compressed: 3.5 MB
 ```
 
+> **Note**: If `memory_report()` shows zeros, ensure `use_cache=True` is set. The patching output above already shows the estimated compression ratio (e.g., "Ratio: 3.6×") which is calculated from model architecture.
+
 ---
 
 ## Benchmark Results
