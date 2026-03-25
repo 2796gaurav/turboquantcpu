@@ -19,11 +19,8 @@ from setuptools.command.build_ext import build_ext
 # Package metadata
 AUTHOR = "Gaurav Chauhan"
 AUTHOR_EMAIL = "2796gaurav@gmail.com"
-VERSION = "0.0.2"
-DESCRIPTION = (
-    "TurboQuantCPU — Near-optimal KV cache quantization for CPU LLM inference "
-    "with mathematical guarantees. Based on TurboQuant (ICLR 2026)."
-)
+VERSION = "0.0.3"
+DESCRIPTION = "Near-optimal KV cache quantization for CPU LLM inference"
 
 
 # ── Optional C Extension Build ───────────────────────────────────────

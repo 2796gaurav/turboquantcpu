@@ -81,7 +81,7 @@ Expected output:
 
 ```
 ════════════════════════════════════════════════════
-  TurboQuantCPU v0.0.2 — Host CPU Capabilities
+  TurboQuantCPU v0.0.3 — Host CPU Capabilities
 ════════════════════════════════════════════════════
   CPU     : Intel(R) Core(TM) i7-...
   Arch    : x86_64  (intel)
