@@ -179,8 +179,14 @@ def _wrap_attention_forward(module, cache: CompressedKVCache, layer_idx: int):
                     with torch.no_grad():
                         k = module.k_proj(hidden_states)
                         v = module.v_proj(hidden_states)
-                except:
+                except Exception as e:
+                    # Silently fail - model may use different attention mechanism
                     pass
+        
+        # Method 3: Try to extract from output attentions if available
+        if k is None and hasattr(outputs, 'attentions') and outputs.attentions is not None:
+            # Some models return attention weights that we can use
+            pass  # Not implemented - would need to reconstruct K from attention
         
         # Process and store if we have K and V
         if k is not None and v is not None:
@@ -203,9 +209,13 @@ def _wrap_attention_forward(module, cache: CompressedKVCache, layer_idx: int):
                     k_sqhd = k[0].permute(1, 0, 2).contiguous().detach().cpu()
                     v_sqhd = v[0].permute(1, 0, 2).contiguous().detach().cpu()
                     cache.update(layer_idx, k_sqhd, v_sqhd)
-            except Exception:
-                import traceback
-                traceback.print_exc()
+            except Exception as e:
+                # Log error but don't crash - generation should still work
+                import os
+                if os.environ.get('TURBOQUANT_DEBUG'):
+                    import traceback
+                    print(f"[TurboQuantCPU] Layer {layer_idx} cache update failed: {e}")
+                    traceback.print_exc()
         
         return outputs
     
