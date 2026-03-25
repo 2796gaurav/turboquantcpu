@@ -54,7 +54,7 @@ theme:
     repo: fontawesome/brands/github
     edit: material/pencil
     view: material/eye
-    logo: material/zap
+    logo: octicons/zap-16
 
 plugins:
   - search:
@@ -142,7 +142,6 @@ nav:
     - API Reference: api.md
     - Benchmarks: benchmarks.md
   - Advanced:
-    - C Extensions: c-extensions.md
     - Contributing: contributing.md
     - Changelog: changelog.md
   - About:
