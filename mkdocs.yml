@@ -70,7 +70,6 @@ plugins:
             show_category_heading: true
             docstring_options:
               ignore_init_summary: false
-          selection:
             filters:
               - "!^_"
   - git-revision-date-localized:
