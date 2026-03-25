@@ -61,14 +61,17 @@ tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
 # ONE LINE: Enable KV cache compression
 cache = patch_model(model, mode="prod", bits=4)
 
-# Generate as usual
+# Generate text (this populates the compressed KV cache)
 inputs = tokenizer("Explain quantum computing:", return_tensors="pt")
 outputs = model.generate(**inputs, max_new_tokens=100)
 print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 
-# Check memory savings
-print(cache.memory_report())
-# {'compression_ratio': 7.3, 'original_fp16_MB': 25.2, 'compressed_MB': 3.5}
+# Check memory savings after generation
+report = cache.memory_report()
+print(f"Compression: {report['compression_ratio']:.1f}×")
+print(f"Original FP16: {report['original_fp16_MB']:.1f} MB")
+print(f"Compressed: {report['compressed_MB']:.1f} MB")
+# Example output: Compression: 7.3×, Original: 25.2 MB, Compressed: 3.5 MB
 ```
 
 ---
