@@ -50,12 +50,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from turboquantcpu import patch_model
 import torch
 
-# Load any HuggingFace model
+# Load model (set use_cache=True to enable KV cache)
 model = AutoModelForCausalLM.from_pretrained(
     "Qwen/Qwen2.5-0.5B-Instruct",
     torch_dtype=torch.float32,
     device_map="cpu"
 )
+model.config.use_cache = True  # Enable KV cache
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B-Instruct")
 
 # ONE LINE: Enable KV cache compression
@@ -63,7 +64,7 @@ cache = patch_model(model, mode="prod", bits=4)
 
 # Generate text (this populates the compressed KV cache)
 inputs = tokenizer("Explain quantum computing:", return_tensors="pt")
-outputs = model.generate(**inputs, max_new_tokens=100)
+outputs = model.generate(**inputs, max_new_tokens=100, use_cache=True)
 print(tokenizer.decode(outputs[0], skip_special_tokens=True))
 
 # Check memory savings after generation
@@ -71,7 +72,7 @@ report = cache.memory_report()
 print(f"Compression: {report['compression_ratio']:.1f}×")
 print(f"Original FP16: {report['original_fp16_MB']:.1f} MB")
 print(f"Compressed: {report['compressed_MB']:.1f} MB")
-# Example output: Compression: 7.3×, Original: 25.2 MB, Compressed: 3.5 MB
+# Example: Compression: 7.3×, Original: 25.2 MB, Compressed: 3.5 MB
 ```
 
 ---
