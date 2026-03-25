@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2024-2026 Gaurav Chauhan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Third-Party Attribution:
+
+This project implements algorithms from the following research papers:
+
+1. TurboQuant: Online Vector Quantization with Near-optimal Distortion Rate
+   Copyright (c) 2025-2026 Google Research
+   Authors: Amir Zandieh, Majid Daliri, Majid Hadian, Vahab Mirrokni
+   License: Research and educational use permitted
+
+2. QJL: 1-Bit Quantized JL Transform for KV Cache Quantization
+   Copyright (c) 2024-2025 Google Research
+   Authors: Amir Zandieh, Majid Daliri, Insu Han
+   License: Research and educational use permitted
+
+The implementation in this package is an independent work by Gaurav Chauhan,
+based on the algorithms described in the above papers.
