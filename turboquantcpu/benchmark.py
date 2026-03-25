@@ -70,7 +70,7 @@ def run_correctness_check(
 
     if verbose:
         print("\n" + "="*65)
-        print("  TurboQuantCPU v0.0.9 - Correctness Check")
+        print("  TurboQuantCPU v0.0.10 - Correctness Check")
         print("="*65)
 
     d_p2 = 1 << (head_dim-1).bit_length()
@@ -380,7 +380,7 @@ def run_full_benchmark(
 ) -> Dict[str, dict]:
     """Run all benchmarks and print a combined report."""
     print("\n+" + "="*63 + "+")
-    print("|   TurboQuantCPU v0.0.9 - Full Benchmark Suite" + " "*16 + "|")
+    print("|   TurboQuantCPU v0.0.10 - Full Benchmark Suite" + " "*16 + "|")
     print("+" + "="*63 + "+")
 
     from turboquantcpu.cpu_features import print_cpu_capabilities

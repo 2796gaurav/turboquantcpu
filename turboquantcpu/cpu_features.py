@@ -247,7 +247,7 @@ _BAR = "=" * 52
 def print_cpu_capabilities() -> None:
     ci = cpu_info()
     print(_BAR)
-    print("  TurboQuantCPU v0.0.9 - Host CPU Capabilities")
+    print("  TurboQuantCPU v0.0.10 - Host CPU Capabilities")
     print(_BAR)
     print(f"  CPU     : {ci.brand}")
     print(f"  Arch    : {ci.arch}  ({ci.vendor})")

@@ -620,9 +620,9 @@ const char *tqcpu_version(void) {
 #endif
 #ifdef _OPENMP
     snprintf(buf, sizeof(buf),
-        "tqcpu_kernels v0.0.9 [%s] OpenMP=%d", lvl, omp_get_max_threads());
+        "tqcpu_kernels v0.0.10 [%s] OpenMP=%d", lvl, omp_get_max_threads());
 #else
-    snprintf(buf, sizeof(buf), "tqcpu_kernels v0.0.9 [%s] no-OpenMP", lvl);
+    snprintf(buf, sizeof(buf), "tqcpu_kernels v0.0.10 [%s] no-OpenMP", lvl);
 #endif
     return buf;
 }
