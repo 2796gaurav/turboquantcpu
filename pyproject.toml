@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "turboquantcpu"
-version = "0.0.1"
+version = "0.0.2"
 description = "TurboQuantCPU — Near-optimal KV cache quantization for CPU LLM inference with mathematical guarantees"
 readme = "README.md"
 license = {text = "MIT"}
@@ -95,6 +95,7 @@ packages = [
     "turboquantcpu.models",
     "turboquantcpu.server"
 ]
+zip-safe = false
 
 [tool.setuptools.package-data]
 turboquantcpu = ["_kernels/*.c", "_kernels/*.so", "_kernels/*.dylib", "_kernels/*.dll"]

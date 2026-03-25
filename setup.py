@@ -3,105 +3,127 @@ Setup script for TurboQuantCPU.
 
 This script handles:
 - Package metadata
-- C extension compilation with SIMD detection
+- C extension compilation with SIMD detection (optional)
 - Platform-specific optimizations
+- Graceful fallback to pure Python if C extensions fail
 """
 
 import os
 import sys
 import platform
 import subprocess
+import warnings
 from setuptools import setup, find_packages, Extension
 from setuptools.command.build_ext import build_ext
 
 # Package metadata
 AUTHOR = "Gaurav Chauhan"
 AUTHOR_EMAIL = "2796gaurav@gmail.com"
-VERSION = "0.0.1"
+VERSION = "0.0.2"
 DESCRIPTION = (
     "TurboQuantCPU — Near-optimal KV cache quantization for CPU LLM inference "
     "with mathematical guarantees. Based on TurboQuant (ICLR 2026)."
 )
 
 
-# ── CPU feature detection ────────────────────────────────────────────
+# ── Optional C Extension Build ───────────────────────────────────────
 
-def _has_flag(compiler, flag):
-    """Return True if the compiler supports `flag`."""
-    import tempfile
-    with tempfile.NamedTemporaryFile("w", suffix=".c", delete=False) as f:
-        f.write("int main(){return 0;}")
-        fname = f.name
-    try:
-        compiler.compile([fname], extra_postargs=[flag])
-        return True
-    except Exception:
-        return False
-    finally:
+class OptionalBuildExt(build_ext):
+    """Build C extension with best available SIMD flags, but allow failure."""
+
+    def run(self):
+        """Attempt to build extension, but don't fail if it doesn't work."""
         try:
-            os.unlink(fname)
-            os.unlink(fname.replace(".c", ".o"))
-        except Exception:
+            super().run()
+        except Exception as e:
+            warnings.warn(
+                f"\n{'='*70}\n"
+                f"C extension build failed: {e}\n"
+                f"Falling back to pure Python implementation.\n"
+                f"Performance will be reduced but functionality is preserved.\n"
+                f"To build C extensions manually, see documentation.\n"
+                f"{'='*70}\n"
+            )
+            # Don't fail the build
             pass
 
-
-class SmartBuild(build_ext):
-    """Build C extension with best available SIMD flags."""
-
     def build_extension(self, ext):
+        """Build with platform-specific flags."""
         cc = self.compiler
-
-        # Base flags
-        base = ["-O3", "-ffast-math", "-fPIC", "-std=c11"]
-        extra = []
-
         arch = platform.machine().lower()
-
-        if arch in ("x86_64", "amd64", "i386", "i686"):
-            # Test in priority order
-            if _has_flag(cc, "-mavx512vnni"):
-                extra += ["-mavx512f", "-mavx512bw", "-mavx512vnni",
-                          "-mavx512vl", "-mfma"]
-            elif _has_flag(cc, "-mavx512f"):
-                extra += ["-mavx512f", "-mavx512bw", "-mfma"]
-            elif _has_flag(cc, "-mavx2"):
-                extra += ["-mavx2", "-mfma"]
-            elif _has_flag(cc, "-msse4.1"):
-                extra += ["-msse4.1"]
-            if _has_flag(cc, "-mpopcnt"):
-                extra.append("-mpopcnt")
-
-        elif arch in ("aarch64", "arm64"):
-            extra += ["-march=armv8-a+simd"]
-
-        # OpenMP
-        omp_flag = "-fopenmp"
-        if platform.system() == "Darwin":
-            # Homebrew llvm on macOS
-            try:
-                llvm = subprocess.check_output(
-                    ["brew", "--prefix", "libomp"], stderr=subprocess.DEVNULL
-                ).decode().strip()
-                omp_flag = f"-Xpreprocessor -fopenmp -I{llvm}/include"
-                ext.extra_link_args = [f"-L{llvm}/lib", "-lomp"]
-            except Exception:
-                omp_flag = None  # OpenMP optional on macOS
-        if omp_flag and _has_flag(cc, "-fopenmp"):
-            extra.append("-fopenmp")
-            if not hasattr(ext, "extra_link_args") or ext.extra_link_args is None:
-                ext.extra_link_args = ["-fopenmp"]
-
+        system = platform.system()
+        
+        # Base flags (universal)
+        base = ["-O2"]
+        extra = []
+        
+        try:
+            if system == "Linux" and arch in ("x86_64", "amd64"):
+                # Linux x86_64
+                if self._has_flag(cc, "-mavx2"):
+                    extra = ["-mavx2", "-mfma"]
+                elif self._has_flag(cc, "-msse4.1"):
+                    extra = ["-msse4.1"]
+                    
+                # OpenMP on Linux
+                if self._has_flag(cc, "-fopenmp"):
+                    extra.append("-fopenmp")
+                    ext.extra_link_args = ["-fopenmp"]
+                    
+            elif system == "Darwin":
+                # macOS - skip OpenMP, use native arch
+                if arch == "arm64":
+                    # Apple Silicon - no special flags needed, compiler handles it
+                    extra = ["-arch", "arm64"]
+                else:
+                    # Intel Mac
+                    if self._has_flag(cc, "-mavx2"):
+                        extra = ["-mavx2", "-mfma"]
+                        
+            elif system == "Windows":
+                # Windows MSVC
+                extra = ["/O2"]
+                # Don't use GCC-specific flags on Windows
+                
+        except Exception:
+            # Any error in flag detection, use minimal flags
+            pass
+        
         ext.extra_compile_args = base + extra
-        super().build_extension(ext)
+        
+        try:
+            super().build_extension(ext)
+        except Exception as e:
+            raise RuntimeError(f"C extension build failed: {e}")
+    
+    def _has_flag(self, compiler, flag):
+        """Check if compiler supports a flag."""
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".c", delete=False) as f:
+            f.write("int main(){return 0;}")
+            fname = f.name
+        try:
+            compiler.compile([fname], extra_postargs=[flag])
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                os.unlink(fname)
+                for ext in ['.o', '.obj']:
+                    if os.path.exists(fname.replace(".c", ext)):
+                        os.unlink(fname.replace(".c", ext))
+            except Exception:
+                pass
 
 
-# ── Extension definition ─────────────────────────────────────────────
+# ── Extension definition (optional) ─────────────────────────────────
 
 kernels_ext = Extension(
     "turboquantcpu._tqcpu_kernels",
     sources=["turboquantcpu/_kernels/kernels.c"],
-    extra_compile_args=[],   # overridden by SmartBuild
-    extra_link_args=["-lm"],
+    extra_compile_args=[],  # Set by OptionalBuildExt
+    extra_link_args=[],
     language="c",
 )
 
@@ -130,8 +152,9 @@ setup(
     package_data={
         "turboquantcpu": ["_kernels/*.c"],
     },
+    # C extension is optional - build will succeed even if it fails
     ext_modules=[kernels_ext],
-    cmdclass={"build_ext": SmartBuild},
+    cmdclass={"build_ext": OptionalBuildExt},
     install_requires=[
         "numpy>=1.24",
         "scipy>=1.10",
