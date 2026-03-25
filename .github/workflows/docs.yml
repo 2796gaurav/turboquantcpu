@@ -3,10 +3,6 @@ name: Deploy Documentation
 on:
   push:
     branches: [ main ]
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'turboquantcpu/**/*.py'
   workflow_dispatch:
 
 permissions:
@@ -58,5 +54,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-        env:
-          FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
