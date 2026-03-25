@@ -47,6 +47,44 @@ def load_latest_results() -> Optional[Dict]:
         return json.load(f)
 
 
+def get_compression_data(result: Dict) -> Dict:
+    """Extract compression data from result (handles different formats)."""
+    data = {}
+    
+    # Format 1: comprehensive_benchmark.py format
+    if 'compression' in result:
+        comp = result['compression']
+        if '4bit' in comp:
+            data['4bit_ratio'] = comp['4bit'].get('compression_ratio', 0)
+            data['4bit_overhead'] = comp['4bit'].get('overhead_pct', 0)
+        if '1bit' in comp:
+            data['1bit_ratio'] = comp['1bit'].get('compression_ratio', 0)
+            data['1bit_overhead'] = comp['1bit'].get('overhead_pct', 0)
+    
+    # Format 2: sanity_benchmark.py format
+    if 'turboquant_4bit' in result:
+        data['4bit_ratio'] = result['turboquant_4bit'].get('compression_ratio', 0)
+        data['4bit_overhead'] = result['turboquant_4bit'].get('overhead_pct', 0)
+    if 'turboquant_1bit' in result:
+        data['1bit_ratio'] = result['turboquant_1bit'].get('compression_ratio', 0)
+        data['1bit_overhead'] = result['turboquant_1bit'].get('overhead_pct', 0)
+    
+    return data
+
+
+def get_quality_data(result: Dict) -> float:
+    """Extract quality change from result (handles different formats)."""
+    # Format 1: comprehensive_benchmark.py format
+    if 'quality' in result and '4bit' in result['quality']:
+        return result['quality']['4bit'].get('quality_change_pct', 0)
+    
+    # Format 2: sanity_benchmark.py format
+    if 'quality' in result and 'difference_pct' in result['quality']:
+        return result['quality'].get('difference_pct', 0)
+    
+    return 0
+
+
 def plot_compression_quality_tradeoff(results: Dict, output_dir: str = "plots"):
     """
     Plot 1: Compression Ratio vs Quality Preservation
@@ -62,30 +100,24 @@ def plot_compression_quality_tradeoff(results: Dict, output_dir: str = "plots"):
         model = result['model']
         models.append(model)
         
-        # Extract compression ratios
-        if 'compression' in result:
-            compression_4bit.append(result['compression'].get('4bit', {}).get('compression_ratio', 0))
-            compression_1bit.append(result['compression'].get('1bit', {}).get('compression_ratio', 0))
-        
-        # Extract quality metrics (perplexity change, lower is better)
-        if 'quality' in result:
-            quality_4bit.append(abs(result['quality'].get('4bit', {}).get('quality_change_pct', 0)))
-        else:
-            quality_4bit.append(0)
+        comp_data = get_compression_data(result)
+        compression_4bit.append(comp_data.get('4bit_ratio', 0))
+        compression_1bit.append(comp_data.get('1bit_ratio', 0))
+        quality_4bit.append(abs(get_quality_data(result)))
     
     # Plot with different markers for each model
     markers = ['o', 's', '^', 'D', 'v']
     colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#3B1F2B']
     
     for i, model in enumerate(models):
-        if i < len(compression_4bit):
+        if i < len(compression_4bit) and compression_4bit[i] > 0:
             # 4-bit point
             ax.scatter(compression_4bit[i], quality_4bit[i] if i < len(quality_4bit) else 0,
                       marker=markers[i % len(markers)], s=200, c=colors[i % len(colors)],
                       label=f'{model} (4-bit)', edgecolors='white', linewidth=2, zorder=3)
             
             # 1-bit point
-            if i < len(compression_1bit):
+            if i < len(compression_1bit) and compression_1bit[i] > 0:
                 ax.scatter(compression_1bit[i], quality_4bit[i] * 1.5 if i < len(quality_4bit) else 0,
                           marker=markers[i % len(markers)], s=200, c=colors[i % len(colors)],
                           alpha=0.5, label=f'{model} (1-bit QJL)', edgecolors='white', linewidth=2, zorder=2)
@@ -105,7 +137,7 @@ def plot_compression_quality_tradeoff(results: Dict, output_dir: str = "plots"):
     ax.legend(loc='upper left', framealpha=0.95)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(-0.5, max(quality_4bit) * 2 if quality_4bit else 5)
-    ax.set_xlim(0, max(compression_4bit + compression_1bit) * 1.1 if (compression_4bit + compression_1bit) else 16)
+    ax.set_xlim(0, max(max(compression_4bit + compression_1bit) * 1.1, 16) if (compression_4bit + compression_1bit) else 16)
     
     plt.tight_layout()
     
@@ -128,11 +160,17 @@ def plot_speed_comparison(results: Dict, output_dir: str = "plots"):
     
     for result in results.get('results', []):
         model = result['model']
-        models.append(model)
+        comp_data = get_compression_data(result)
         
-        if 'compression' in result:
-            overhead_4bit.append(result['compression'].get('4bit', {}).get('overhead_pct', 0))
-            overhead_1bit.append(result['compression'].get('1bit', {}).get('overhead_pct', 0))
+        if comp_data.get('4bit_overhead') is not None or comp_data.get('1bit_overhead') is not None:
+            models.append(model)
+            overhead_4bit.append(comp_data.get('4bit_overhead', 0))
+            overhead_1bit.append(comp_data.get('1bit_overhead', 0))
+    
+    if not models:
+        print("  Warning: No speed data available, skipping plot")
+        plt.close()
+        return
     
     x = np.arange(len(models))
     width = 0.35
@@ -189,13 +227,18 @@ def plot_needle_retrieval(results: Dict, output_dir: str = "plots"):
     
     for result in results.get('results', []):
         model = result['model']
-        models.append(model)
         
         if 'needle_in_haystack' in result:
             baseline = result['needle_in_haystack'].get('baseline', {}).get('score_pct', 0)
             turboquant = result['needle_in_haystack'].get('turboquant', {}).get('score_pct', 0)
+            models.append(model)
             baseline_scores.append(baseline)
             turboquant_scores.append(turboquant)
+    
+    if not models:
+        print("  Warning: No needle-in-haystack data available, skipping plot")
+        plt.close()
+        return
     
     x = np.arange(len(models))
     width = 0.35
@@ -299,18 +342,12 @@ def create_summary_table(results: Dict, output_dir: str = "plots"):
     
     for result in results.get('results', []):
         model = result['model'][:14].ljust(14)
+        comp_data = get_compression_data(result)
         
-        if 'compression' in result:
-            ratio_4 = result['compression'].get('4bit', {}).get('compression_ratio', 0)
-            ratio_1 = result['compression'].get('1bit', {}).get('compression_ratio', 0)
-            speed = result['compression'].get('4bit', {}).get('overhead_pct', 0)
-        else:
-            ratio_4 = ratio_1 = speed = 0
-        
-        if 'quality' in result:
-            quality = result['quality'].get('4bit', {}).get('quality_change_pct', 0)
-        else:
-            quality = 0
+        ratio_4 = comp_data.get('4bit_ratio', 0)
+        ratio_1 = comp_data.get('1bit_ratio', 0)
+        speed = comp_data.get('4bit_overhead', 0)
+        quality = get_quality_data(result)
         
         lines.append(f"{model} | {ratio_4:>10.1f}× | {ratio_1:>10.1f}× | {speed:>+9.1f}% | {quality:>+10.2f}%")
     
