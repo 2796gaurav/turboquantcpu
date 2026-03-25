@@ -1,255 +1,383 @@
 # API Reference
 
-## Core Quantizers
+Complete reference for all TurboQuantCPU public APIs.
 
-### TurboQuantizer
+## High-Level API (Recommended)
+
+### `patch_model`
 
 ```python
-class TurboQuantizer(
-    head_dim: int,
-    num_kv_heads: int,
-    num_q_heads: Optional[int] = None,
-    layer_idx: int = 0,
-    mode: Union[TurboMode, str] = TurboMode.PROD,
-    bits: int = 4,
-    outlier_frac: float = 0.0,
-    n_threads: int = 0,
-)
+patch_model(model, mode="prod", bits=4, **kwargs)
 ```
 
-Main quantizer implementing TurboQuant algorithms.
+Patches a HuggingFace model to use compressed KV cache.
 
 **Parameters:**
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `head_dim` | int | — | Head vector dimension |
-| `num_kv_heads` | int | — | Number of KV heads (GQA) |
-| `num_q_heads` | int | None | Number of query heads |
-| `layer_idx` | int | 0 | Layer index (for deterministic rotations) |
-| `mode` | TurboMode/str | PROD | Quantization mode |
+| `model` | PreTrainedModel | required | HuggingFace model to patch |
+| `mode` | str | `"prod"` | Quantization mode: `"prod"`, `"mse"`, `"qjl"`, `"polar"` |
+| `bits` | int | `4` | Bits per coordinate (1, 2, 4, 8) |
+| `max_seq_len` | int | `None` | Maximum sequence length |
+| `value_mode` | str | `"int8"` | Value compression: `"int8"`, `"int4"`, `"fp16"` |
+
+**Returns:** `CompressedKVCache` instance
+
+**Example:**
+
+```python
+from turboquantcpu import patch_model
+
+# Recommended: PROD mode with 4-bit
+patch_model(model, mode="prod", bits=4)
+
+# Maximum compression: QJL 1-bit
+patch_model(model, mode="qjl")
+
+# Long context with custom value compression
+patch_model(model, mode="prod", bits=4, max_seq_len=32768, value_mode="int4")
+```
+
+---
+
+### `unpatch_model`
+
+```python
+unpatch_model(model)
+```
+
+Restores a patched model to its original state.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model` | PreTrainedModel | Model previously patched with `patch_model()` |
+
+**Returns:** `None`
+
+**Example:**
+
+```python
+from turboquantcpu import patch_model, unpatch_model
+
+cache = patch_model(model, mode="prod")
+# ... use model ...
+unpatch_model(model)  # Restore original
+```
+
+---
+
+### `PatchConfig`
+
+Configuration class for advanced patching options.
+
+```python
+from turboquantcpu import PatchConfig
+
+config = PatchConfig(
+    mode="prod",
+    bits=4,
+    max_seq_len=32768,
+    value_mode="int8",
+    h2o_budget=None,  # Heavy-Hitter budget (experimental)
+    group_size=None,  # Group size for grouped quantization
+)
+
+cache = patch_model(model, cfg=config)
+```
+
+**Attributes:**
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `mode` | TurboMode/str | `TurboMode.PROD` | Quantization mode |
 | `bits` | int | 4 | Bits per coordinate |
-| `outlier_frac` | float | 0.0 | Fraction of outlier channels |
-| `n_threads` | int | 0 | Thread pool size (0=auto) |
+| `max_seq_len` | int | 32768 | Maximum sequence length |
+| `value_mode` | str | `"int8"` | Value compression mode |
+| `h2o_budget` | int/None | None | Heavy-Hitter Oracle budget |
+| `group_size` | int/None | None | Group size for grouped quantization |
+
+---
+
+## Quantization Modes
+
+### `TurboMode`
+
+Enum for quantization modes.
+
+```python
+from turboquantcpu import TurboMode
+
+TurboMode.PROD   # Unbiased attention (recommended)
+TurboMode.MSE    # Best reconstruction quality
+TurboMode.QJL    # 1-bit maximum compression
+TurboMode.POLAR  # Outlier-resistant
+```
+
+**Mode Details:**
+
+| Mode | Bits | Compression | Unbiased | Best For |
+|------|------|-------------|----------|----------|
+| `PROD` | 4 | 7.3× | ✅ Yes | General use, quality critical |
+| `MSE` | 4 | 7.3× | ❌ No | Best reconstruction |
+| `QJL` | 1 | 14× | ✅ Yes | Extreme memory constraints |
+| `POLAR` | 4 | 7.3× | ❌ No | Outlier-heavy models |
+
+---
+
+## Low-Level API
+
+### `TurboQuantizer`
+
+Direct access to TurboQuant quantization.
+
+```python
+from turboquantcpu import TurboQuantizer, TurboMode
+
+quantizer = TurboQuantizer(
+    head_dim=128,
+    num_kv_heads=8,
+    mode=TurboMode.PROD,
+    bits=4,
+)
+
+# Compress keys
+state = quantizer.compress(keys)
+
+# Compute scores
+scores = quantizer.scores(query, state)
+```
+
+**Constructor Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `head_dim` | int | required | Dimension of each attention head |
+| `num_kv_heads` | int | required | Number of KV heads |
+| `mode` | TurboMode | `TurboMode.PROD` | Quantization mode |
+| `bits` | int | 4 | Bits per coordinate |
+| `codebook_type` | str | `"lloyd"` | Codebook type: `"lloyd"`, `"uniform"` |
 
 **Methods:**
 
-#### compress(keys)
+#### `compress(keys)`
 
-Compress key vectors.
-
-```python
-def compress(
-    keys: Union[np.ndarray, torch.Tensor]
-) -> TurboState
-```
+Compress key tensors.
 
 **Parameters:**
-- `keys`: (seq_len, num_kv_heads, head_dim) float32/float16
+- `keys`: Tensor of shape `(batch, heads, seq_len, head_dim)`
 
-**Returns:**
-- `TurboState`: Compressed representation
+**Returns:** `TurboState` compressed state
 
-#### scores(query, state)
+#### `scores(query, state)`
 
 Compute attention scores.
 
-```python
-def scores(
-    query: Union[np.ndarray, torch.Tensor],
-    state: TurboState
-) -> np.ndarray
-```
+**Parameters:**
+- `query`: Query tensor `(batch, heads, 1, head_dim)`
+- `state`: Compressed key state from `compress()`
+
+**Returns:** Attention scores `(batch, heads, seq_len)`
+
+#### `reconstruct(state)`
+
+Reconstruct keys from compressed state.
 
 **Parameters:**
-- `query`: (batch, num_q_heads, head_dim)
-- `state`: TurboState from compress()
+- `state`: Compressed state
+
+**Returns:** Reconstructed keys
+
+---
+
+### `QJLQuantizer`
+
+1-bit quantization via QJL (Johnson-Lindenstrauss transform).
+
+```python
+from turboquantcpu import QJLQuantizer, QJLState
+
+quantizer = QJLQuantizer(
+    head_dim=128,
+    num_hashs=1,  # Number of JL projections
+)
+
+state = quantizer.compress(keys)
+scores = quantizer.scores(query, state)
+```
+
+**Constructor Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `head_dim` | int | required | Dimension of each attention head |
+| `num_hashs` | int | 1 | Number of JL hash functions |
+
+---
+
+### `PolarQuantizer`
+
+Polar transformation-based quantization for outlier resistance.
+
+```python
+from turboquantcpu import PolarQuantizer, PolarState
+
+quantizer = PolarQuantizer(
+    head_dim=128,
+    bits=4,
+)
+
+state = quantizer.compress(keys)
+scores = quantizer.scores(query, state)
+```
+
+---
+
+## Cache Management
+
+### `CompressedKVCache`
+
+KV cache with compression support.
+
+```python
+from turboquantcpu import CacheConfig, LayerCache, CompressedKVCache
+
+config = CacheConfig(
+    num_layers=32,
+    num_kv_heads=8,
+    head_dim=128,
+    max_seq_len=32768,
+    kv_quantizer=quantizer,
+)
+
+cache = CompressedKVCache(config)
+```
+
+**Methods:**
+
+#### `update(layer_idx, key_states, value_states)`
+
+Update cache with new key-value states.
+
+#### `get(layer_idx)`
+
+Retrieve cached states for a layer.
+
+#### `memory_report()`
+
+Get memory usage statistics.
 
 **Returns:**
-- Scores: (batch, num_q_heads, seq_len)
-
-### QJLQuantizer
 
 ```python
-class QJLQuantizer(
-    head_dim: int,
-    num_kv_heads: int,
-    num_q_heads: Optional[int] = None,
-    layer_idx: int = 0,
-    seed_offset: int = 0,
-    normalise_keys: bool = True,
-    n_threads: int = 0,
-)
+{
+    "original_fp16_MB": 25.2,      # Original FP16 size
+    "compressed_MB": 3.5,          # Compressed size
+    "compression_ratio": 7.3,      # Compression ratio
+}
 ```
 
-1-bit QJL quantizer for maximum compression.
+---
 
-### PolarQuantizer
+## Utility Functions
+
+### `fwht`
+
+Fast Walsh-Hadamard Transform (in-place).
 
 ```python
-class PolarQuantizer(
-    head_dim: int,
-    num_kv_heads: int,
-    num_q_heads: Optional[int] = None,
-    layer_idx: int = 0,
-    n_r_bits: int = 2,
-    n_theta_bits: int = 2,
-    n_threads: int = 0,
-)
+from turboquantcpu import fwht
+
+import torch
+x = torch.randn(128)
+fwht(x)  # In-place transform
 ```
 
-Polar quantization for outlier resistance.
+### `cpu_features`
 
-## Enums
-
-### TurboMode
+Get CPU feature detection information.
 
 ```python
-class TurboMode(str, Enum):
-    QJL = "qjl"      # 1-bit maximum compression
-    MSE = "mse"      # MSE-optimal quantization
-    PROD = "prod"    # Unbiased inner product (recommended)
+from turboquantcpu import cpu_features
+
+info = cpu_features()
+print(info)
+# {
+#     "has_avx2": True,
+#     "has_avx512": False,
+#     "has_neon": False,
+#     "has_fma": True,
+#     "optimal_batch_size": 64,
+# }
 ```
 
-## KV Cache Management
+---
 
-### CompressedKVCache
+## Type Hints
 
-```python
-class CompressedKVCache(
-    layers: List[LayerCache],
-    config: CacheConfig
-)
-```
-
-Full model compressed KV cache.
-
-**Class Methods:**
-
-#### from_config(config)
+Complete type hints for all public APIs:
 
 ```python
-@classmethod
-def from_config(cls, config: CacheConfig) -> CompressedKVCache
-```
+from typing import Optional, Literal, Union
+from torch import Tensor
 
-Create cache from configuration.
+# Mode type
+TurboModeType = Literal["prod", "mse", "qjl", "polar"]
 
-### CacheConfig
+# Value mode type
+ValueModeType = Literal["int8", "int4", "fp16"]
 
-```python
-class CacheConfig(
-    num_layers: int,
-    num_kv_heads: int,
-    num_q_heads: int,
-    head_dim: int,
-    max_seq_len: int = 32768,
-    mode: str = "prod",
-    bits: int = 4,
-    value_mode: str = "int8",
-    value_group_size: int = 32,
-    outlier_frac: float = 0.0,
-    h2o_config: Optional[H2OConfig] = None,
-    memory_budget_gb: float = 4.0,
-)
-```
-
-## HuggingFace Integration
-
-### patch_model
-
-```python
+# Configuration
 def patch_model(
-    model: nn.Module,
-    mode: str = "prod",
-    bits: int = 4,
-    max_seq_len: int = 32768,
-    verbose: bool = True,
-    cfg: Optional[PatchConfig] = None,
-) -> CompressedKVCache
+    model: PreTrainedModel,
+    mode: Union[TurboModeType, TurboMode] = "prod",
+    bits: Literal[1, 2, 4, 8] = 4,
+    max_seq_len: Optional[int] = None,
+    value_mode: ValueModeType = "int8",
+    **kwargs
+) -> CompressedKVCache: ...
 ```
 
-Patch a HuggingFace model for KV cache compression.
+---
 
-**Parameters:**
-- `model`: HuggingFace AutoModelForCausalLM
-- `mode`: Quantization mode ("qjl", "mse", "prod", "polar")
-- `bits`: Bits per coordinate
-- `max_seq_len`: Maximum sequence length
-- `verbose`: Print patching info
-- `cfg`: Detailed configuration (optional)
+## Error Handling
 
-**Returns:**
-- `CompressedKVCache`: Cache instance attached to model
+TurboQuantCPU raises specific exceptions for different error conditions:
 
-### unpatch_model
+| Exception | When Raised | How to Handle |
+|-----------|-------------|---------------|
+| `ValueError` | Invalid mode, bits, or configuration | Check parameters match allowed values |
+| `RuntimeError` | Model not supported or C extension failed | Check model compatibility, rebuild extensions |
+| `ImportError` | Missing dependencies | Install required packages |
+
+**Example:**
 
 ```python
-def unpatch_model(model: nn.Module) -> int
+from turboquantcpu import patch_model, TurboMode
+
+try:
+    cache = patch_model(model, mode="invalid_mode")
+except ValueError as e:
+    print(f"Invalid mode: {e}")
+    # Use valid mode instead
+    cache = patch_model(model, mode="prod")
 ```
 
-Remove all TurboQuantCPU patches.
+---
 
-**Returns:**
-- Number of hooks removed
+## Supported Models
 
-## Utilities
+TurboQuantCPU supports all HuggingFace CausalLM models:
 
-### print_cpu_capabilities
+| Architecture | Examples | Notes |
+|--------------|----------|-------|
+| Llama | Llama-2, Llama-3, Mistral | Full support |
+| Qwen | Qwen2, Qwen2.5 | Full support |
+| Gemma | Gemma, Gemma-2 | Full support |
+| Phi | Phi-2, Phi-3 | Full support |
+| Falcon | Falcon-7B, Falcon-40B | Full support |
+| GPT-NeoX | Pythia, GPT-NeoX | Full support |
 
-```python
-def print_cpu_capabilities() -> None
-```
-
-Print system CPU capabilities and detected features.
-
-### cpu_info
-
-```python
-@functools.lru_cache(maxsize=1)
-def cpu_info() -> CPUInfo
-```
-
-Get CPU information (cached).
-
-**Returns:**
-- `CPUInfo` with fields: brand, arch, simd features, etc.
-
-## Benchmarking
-
-### run_full_benchmark
-
-```python
-def run_full_benchmark(
-    head_dim: int = 128,
-    num_heads: int = 8,
-    verbose: bool = True,
-) -> Dict[str, dict]
-```
-
-Run comprehensive benchmark suite.
-
-**Returns:**
-- Dictionary with correctness, memory, speed benchmarks
-
-### run_correctness_check
-
-```python
-def run_correctness_check(
-    head_dim: int = 128,
-    num_heads: int = 8,
-    seq_len: int = 512,
-    n_trials: int = 30,
-    verbose: bool = True,
-) -> Dict[str, float]
-```
-
-Verify mathematical guarantees.
-
-## Exceptions
-
-All functions may raise:
-
-- `ValueError`: Invalid parameters
-- `RuntimeError`: Operation on empty cache
-- `ImportError`: Missing optional dependencies
+Any model using standard HuggingFace `Cache` interface is supported.

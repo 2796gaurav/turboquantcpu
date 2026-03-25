@@ -19,7 +19,7 @@ from setuptools.command.build_ext import build_ext
 # Package metadata
 AUTHOR = "Gaurav Chauhan"
 AUTHOR_EMAIL = "2796gaurav@gmail.com"
-VERSION = "0.0.15"
+VERSION = "0.1.0"
 DESCRIPTION = "Near-optimal KV cache quantization for CPU LLM inference"
 
 
@@ -160,7 +160,7 @@ setup(
     extras_require={
         "hf": ["transformers>=4.38", "accelerate>=0.26", "safetensors>=0.4"],
         "serve": ["fastapi>=0.110", "uvicorn>=0.27", "httpx>=0.27"],
-        "gguf": ["gguf>=0.6.0"],
+
         "dev": [
             "pytest>=7",
             "hypothesis",
@@ -178,7 +178,7 @@ setup(
             "fastapi>=0.110",
             "uvicorn>=0.27",
             "httpx>=0.27",
-            "gguf>=0.6.0",
+
             "pytest>=7",
             "hypothesis",
             "matplotlib",

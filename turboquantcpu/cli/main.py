@@ -58,7 +58,7 @@ def cmd_info(args: argparse.Namespace) -> int:
 def cmd_convert(args: argparse.Namespace) -> int:
     """Convert model formats."""
     print("Model conversion - coming soon!")
-    print("Planned formats: GGUF, Safetensors, PyTorch")
+    print("Planned formats: Safetensors, PyTorch")
     return 0
 
 
@@ -120,8 +120,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     convert_parser.add_argument("-o", "--output", help="Output path")
     convert_parser.add_argument(
         "-f", "--format",
-        choices=["gguf", "safetensors", "pytorch"],
-        default="gguf",
+        choices=["safetensors", "pytorch"],
+        default="safetensors",
         help="Output format",
     )
     convert_parser.set_defaults(func=cmd_convert)

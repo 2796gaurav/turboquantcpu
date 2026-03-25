@@ -28,11 +28,40 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# Project specific
+# Project specific - C extensions
+turboquantcpu/*.so
+turboquantcpu/*.dylib
+turboquantcpu/*.dll
+turboquantcpu/_tqcpu_kernels*
+
+# Benchmark results and reports (keep structure, ignore data)
 benchmarks/results/*.json
-!benchmarks/results/.gitkeep
+benchmarks/results/*.csv
+benchmarks/results/raw/
+benchmarks/reports/*.md
+benchmarks/reports/*.html
+benchmarks/reports/*.pdf
+benchmarks/plots/*.png
+benchmarks/plots/*.pdf
 tmp/
 *.prof
 
-# Keep plots
-!benchmarks/plots/*.png
+# Model downloads (if any)
+models/
+checkpoints/
+*.bin
+*.safetensors
+*.gguf
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.venv
+venv/
+env/
+
+# Keep placeholder files
+!.gitkeep

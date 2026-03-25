@@ -1,0 +1,75 @@
+{
+  "timestamp": "2026-03-25T16:23:13.151753",
+  "results": [
+    {
+      "model": "Qwen3.5-0.8B",
+      "config": {
+        "name": "Qwen/Qwen3.5-0.8B",
+        "params": "0.8B",
+        "layers": 24,
+        "kv_heads": 2,
+        "head_dim": 128,
+        "license": "Apache 2.0"
+      },
+      "load": {
+        "time_s": 1774435830.0740902,
+        "memory_mb": 4640.0078125
+      },
+      "baseline": {
+        "avg_time_s": 5.29849910736084
+      },
+      "turboquant_4bit": {
+        "avg_time_s": 6.261917352676392,
+        "overhead_pct": 18.182851894362706,
+        "kv_cache_mb": 0.514368,
+        "compression_ratio": 7.26241134751773
+      },
+      "turboquant_1bit": {
+        "avg_time_s": 5.894760767618815,
+        "overhead_pct": 11.253406826654565,
+        "kv_cache_mb": 0.279072,
+        "compression_ratio": 13.385620915032682
+      },
+      "quality": {
+        "perplexity_baseline": 17.45571517944336,
+        "perplexity_4bit": 17.45571517944336,
+        "difference_pct": 0.0
+      }
+    },
+    {
+      "model": "Llama-3.2-1B",
+      "config": {
+        "name": "meta-llama/Llama-3.2-1B",
+        "params": "1B",
+        "layers": 16,
+        "kv_heads": 8,
+        "head_dim": 64,
+        "license": "Llama 3.2 Community"
+      },
+      "load": {
+        "time_s": 1774435904.724633,
+        "memory_mb": 2685.8671875
+      },
+      "baseline": {
+        "avg_time_s": 10.28862992922465
+      },
+      "turboquant_4bit": {
+        "avg_time_s": 9.15938115119934,
+        "overhead_pct": -10.975696334627605,
+        "kv_cache_mb": 1.456128,
+        "compression_ratio": 1.7777777777777777
+      },
+      "turboquant_1bit": {
+        "avg_time_s": 9.055803537368774,
+        "overhead_pct": -11.982415543531754,
+        "kv_cache_mb": 0.788736,
+        "compression_ratio": 3.282051282051282
+      },
+      "quality": {
+        "perplexity_baseline": 7.051145553588867,
+        "perplexity_4bit": 7.051145553588867,
+        "difference_pct": 0.0
+      }
+    }
+  ]
+}

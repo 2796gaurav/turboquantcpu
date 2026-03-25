@@ -104,48 +104,112 @@ def _extract_layer_idx(name: str) -> int:
     return 0
 
 
-# ── Hook factory ──────────────────────────────────────────────────────
+# ── Attention wrapper factory ─────────────────────────────────────────
 
-def _make_kv_hook(cache: CompressedKVCache, layer_idx: int):
+def _wrap_attention_forward(module, cache: CompressedKVCache, layer_idx: int):
     """
-    Returns a forward hook that captures K, V and stores them compressed.
-
-    The hook fires after the attention module's forward() and intercepts
-    the returned past_key_values tuple (k, v).
+    Wraps an attention module's forward method to capture K, V tensors.
+    
+    This intercepts the K and V computations and stores them in our
+    compressed cache.
     """
-    def hook(module, inputs, outputs):
-        if not isinstance(outputs, (tuple, list)):
-            return
-
-        kv_pair = None
-        for item in outputs:
-            if isinstance(item, tuple) and len(item) == 2:
-                k, v = item
-                if isinstance(k, torch.Tensor) and k.ndim >= 3:
-                    kv_pair = (k, v)
-                    break
-
-        if kv_pair is None:
-            return
-
-        k, v = kv_pair  # most HF models: (batch, H, seq, d)
-
-        if k.ndim == 4:
-            # (batch, H, seq, d) → (seq, H, d) for batch=0
-            k_sqhd = k[0].permute(1, 0, 2).detach().cpu()
-            v_sqhd = v[0].permute(1, 0, 2).detach().cpu()
-        elif k.ndim == 3:
-            k_sqhd = k.detach().cpu()
-            v_sqhd = v.detach().cpu()
-        else:
-            return
-
-        try:
-            cache.update(layer_idx, k_sqhd, v_sqhd)
-        except Exception:
-            pass  # Never crash inference
-
-    return hook
+    original_forward = module.forward
+    
+    # Get model config for dimensions
+    # Try various attribute names used by different models
+    def get_num_kv_heads():
+        # Try common attribute names
+        for attr in ['num_key_value_heads', 'num_kv_heads', 'kv_heads']:
+            if hasattr(module, attr):
+                val = getattr(module, attr)
+                if val is not None:
+                    return val
+        # Infer from k_proj weight shape
+        if hasattr(module, 'k_proj'):
+            # k_proj weight shape: (num_kv_heads * head_dim, hidden_size)
+            # We need to determine num_kv_heads and head_dim
+            hidden_size = module.k_proj.weight.shape[1]
+            kv_dim = module.k_proj.weight.shape[0]
+            # Try to infer from config if available
+            if hasattr(module, 'head_dim'):
+                head_dim = module.head_dim
+                return kv_dim // head_dim
+        return 1
+    
+    def get_head_dim():
+        if hasattr(module, 'head_dim'):
+            return module.head_dim
+        if hasattr(module, 'k_proj'):
+            # k_proj output dimension = num_kv_heads * head_dim
+            # For GQA models, this is typically hidden_size // num_attention_heads
+            hidden_size = module.k_proj.weight.shape[1]
+            num_attn_heads = getattr(module, 'num_heads', 
+                          getattr(module, 'num_attention_heads', 1))
+            if num_attn_heads:
+                return hidden_size // num_attn_heads
+        return 64  # Default
+    
+    num_kv_heads = get_num_kv_heads()
+    head_dim = get_head_dim()
+    
+    def wrapped_forward(*args, **kwargs):
+        # Call original forward
+        outputs = original_forward(*args, **kwargs)
+        
+        # Try to extract K, V from the module's internal state
+        k = v = None
+        
+        # Method 1: Check if k_proj and v_proj outputs are stored
+        if hasattr(module, '_k_proj_output') and hasattr(module, '_v_proj_output'):
+            k = module._k_proj_output
+            v = module._v_proj_output
+        
+        # Method 2: Check for k_proj and v_proj, compute manually if needed
+        if k is None and hasattr(module, 'k_proj') and hasattr(module, 'v_proj'):
+            # Try to get hidden states from inputs
+            if len(args) >= 1:
+                hidden_states = args[0]
+            elif 'hidden_states' in kwargs:
+                hidden_states = kwargs['hidden_states']
+            else:
+                hidden_states = None
+            
+            if hidden_states is not None:
+                try:
+                    with torch.no_grad():
+                        k = module.k_proj(hidden_states)
+                        v = module.v_proj(hidden_states)
+                except:
+                    pass
+        
+        # Process and store if we have K and V
+        if k is not None and v is not None:
+            try:
+                # Reshape based on expected dimensions
+                # Most models: (batch, seq, num_heads * head_dim) -> (batch, num_heads, seq, head_dim)
+                if k.ndim == 3:
+                    batch, seq_len, _ = k.shape
+                    nonlocal num_kv_heads, head_dim
+                    
+                    # Recalculate if needed
+                    if num_kv_heads is None or num_kv_heads == 1:
+                        num_kv_heads = k.shape[-1] // head_dim
+                    
+                    k = k.view(batch, seq_len, num_kv_heads, head_dim).transpose(1, 2)
+                    v = v.view(batch, seq_len, num_kv_heads, head_dim).transpose(1, 2)
+                
+                # Convert to (seq, num_heads, head_dim) for batch=0
+                if k.ndim == 4:
+                    k_sqhd = k[0].permute(1, 0, 2).contiguous().detach().cpu()
+                    v_sqhd = v[0].permute(1, 0, 2).contiguous().detach().cpu()
+                    cache.update(layer_idx, k_sqhd, v_sqhd)
+            except Exception:
+                import traceback
+                traceback.print_exc()
+        
+        return outputs
+    
+    return wrapped_forward
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -223,10 +287,9 @@ def patch_model(
     )
     cache = CompressedKVCache.from_config(cache_cfg)
 
-    # Register hooks
+    # Wrap attention modules
     attn_layers   = _find_attention_modules(model)
-    hooks_list    = []
-    model._tqcpu_hooks = []
+    model._tqcpu_wrapped = []  # Store original forward methods for unpatching
 
     if not attn_layers:
         raise RuntimeError(
@@ -239,8 +302,10 @@ def patch_model(
                 print(f"  ·  layer {layer_idx:3d}: skipped")
             continue
 
-        h = mod.register_forward_hook(_make_kv_hook(cache, layer_idx))
-        model._tqcpu_hooks.append(h)
+        # Store original forward and wrap it
+        original_forward = mod.forward
+        mod.forward = _wrap_attention_forward(mod, cache, layer_idx)
+        model._tqcpu_wrapped.append((mod, original_forward))
         if verbose:
             print(f"  [OK]  layer {layer_idx:3d}: {name}")
 
@@ -258,18 +323,20 @@ def patch_model(
         print(f"    Original FP16  : {orig:.1f} MB")
         print(f"    Compressed ({bpe:.1f}b): {comp:.1f} MB")
         print(f"    Ratio          : {ratio:.1f}×")
-        print(f"\n[TurboQuantCPU] {len(model._tqcpu_hooks)} layers patched [OK]\n")
+        print(f"\n[TurboQuantCPU] {len(model._tqcpu_wrapped)} layers patched [OK]\n")
 
     return cache
 
 
 def unpatch_model(model: nn.Module) -> int:
-    """Remove all TurboQuantCPU patches. Returns number of hooks removed."""
-    hooks = getattr(model, "_tqcpu_hooks", [])
-    for h in hooks:
-        h.remove()
-    n = len(hooks)
-    if hasattr(model, "_tqcpu_hooks"): del model._tqcpu_hooks
+    """Remove all TurboQuantCPU patches. Returns number of layers restored."""
+    # Restore wrapped forward methods
+    wrapped = getattr(model, "_tqcpu_wrapped", [])
+    for mod, original_forward in wrapped:
+        mod.forward = original_forward
+    n = len(wrapped)
+    
+    if hasattr(model, "_tqcpu_wrapped"): del model._tqcpu_wrapped
     if hasattr(model, "_tqcpu_cache"): del model._tqcpu_cache
     gc.collect()
     return n

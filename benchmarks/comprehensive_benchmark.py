@@ -1,673 +1,545 @@
 #!/usr/bin/env python3
 """
-Comprehensive TurboQuantCPU Benchmark Suite with Visualizations
+================================================================================
+TurboQuantCPU - Comprehensive Benchmark (3 Models)
+================================================================================
 
-This benchmark suite tests:
-1. Correctness (mathematical guarantees)
-2. Memory compression ratios
-3. Speed (various sequence lengths)
-4. Quality (accuracy vs baseline)
-5. Long context behavior
-6. Multi-model compatibility
+Thorough benchmarking on 3 core HuggingFace models:
+1. Qwen/Qwen3.5-0.8B (0.8B params, Alibaba) - Apache 2.0
+2. meta-llama/Llama-3.2-1B (1B params, Meta) - Llama 3.2 License
+3. google/gemma-2-2b-it (2B params, Google) - Gemma Terms
 
-Generates plots for README and documentation.
+BENCHMARKS:
+-----------
+- Memory compression ratio (1-bit, 2-bit, 4-bit)
+- Inference speed (tokens/sec, overhead %)
+- Quality (perplexity, needle-in-haystack retrieval)
+- Long context scaling
+
+METRICS:
+--------
+- Compression Ratio = FP16 size / compressed size
+- Speed Overhead = (compressed_time / baseline_time - 1) × 100%
+- Quality Loss = (ppl_compressed / ppl_baseline - 1) × 100%
+- Needle Retrieval = % correct at various depths/lengths
+
+IMPORTANT:
+----------
+- All measurements are ACTUAL (not simulated)
+- All models are HuggingFace Transformers (no GGUF)
+- CPU-only inference
+================================================================================
 """
 
+import os
+import sys
 import json
 import time
 import gc
-import os
-import sys
+import psutil
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
-import matplotlib.pyplot as plt
-from dataclasses import dataclass, asdict
-from typing import Dict, List, Tuple, Any
 from datetime import datetime
+from typing import Dict, List, Optional
+from dataclasses import dataclass
 
-# Add parent to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from turboquantcpu import (
-    TurboQuantizer, TurboMode, QJLQuantizer, PolarQuantizer,
-    ValueQuantizer, ValueMode, CompressedKVCache, CacheConfig,
-    cpu_info, fwht_numpy, get_signs, randomized_fwht,
-    run_correctness_check
-)
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from turboquantcpu import patch_model, unpatch_model
 
-# Constants
-RANDOM_SEED = 42
-np.random.seed(RANDOM_SEED)
-RESULTS_DIR = os.path.join(os.path.dirname(__file__), 'results')
-PLOTS_DIR = os.path.join(os.path.dirname(__file__), 'plots')
-os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs(PLOTS_DIR, exist_ok=True)
+# Configuration
+BENCHMARK_MODELS = {
+    "Qwen3.5-0.8B": {
+        "repo_id": "Qwen/Qwen3.5-0.8B",
+        "provider": "Alibaba",
+        "params": "0.8B",
+        "layers": 24,
+        "kv_heads": 2,
+        "head_dim": 128,
+        "license": "Apache 2.0",
+    },
+    "Llama-3.2-1B": {
+        "repo_id": "meta-llama/Llama-3.2-1B",
+        "provider": "Meta",
+        "params": "1B",
+        "layers": 16,
+        "kv_heads": 8,
+        "head_dim": 64,
+        "license": "Llama 3.2",
+    },
+    "Gemma-2-2B": {
+        "repo_id": "google/gemma-2-2b-it",
+        "provider": "Google",
+        "params": "2B",
+        "layers": 18,
+        "kv_heads": 4,
+        "head_dim": 128,
+        "license": "Gemma",
+    },
+}
+
+TEST_PROMPTS = [
+    "The capital of France is Paris. The capital of Germany is",
+    "Machine learning is a subset of artificial intelligence that",
+    "The largest planet in our solar system is Jupiter, which",
+    "Water boils at 100 degrees Celsius at standard atmospheric",
+    "The speed of light in vacuum is approximately 299,792",
+]
+
+NEEDLE_PROMPTS = [
+    "The secret code is BLUE-7829. Remember this code.",
+    "The magic word is ALOHOMORA. This is important.",
+    "The hidden key is XJ-900-KL. Store this safely.",
+]
 
 
-@dataclass
-class BenchmarkResult:
-    """Single benchmark result."""
-    name: str
-    metric: str
-    value: float
-    unit: str
-    std: float = 0.0
-    samples: int = 1
-    metadata: Dict = None
-    timestamp: str = ""
-    
-    def __post_init__(self):
-        if not self.timestamp:
-            self.timestamp = datetime.now().isoformat()
-        if self.metadata is None:
-            self.metadata = {}
+def get_memory_mb() -> float:
+    """Get current process memory in MB."""
+    process = psutil.Process()
+    return process.memory_info().rss / 1024 / 1024
 
 
-class ComprehensiveBenchmark:
-    """Comprehensive benchmark suite with visualizations."""
+def calculate_perplexity(model, tokenizer, text: str, device: str = "cpu") -> float:
+    """Calculate perplexity (lower is better)."""
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
     
-    def __init__(self):
-        self.results: List[BenchmarkResult] = []
-        self.cpu_info = cpu_info()
-        self.system_info = {
-            "cpu": self.cpu_info.brand,
-            "simd": self.cpu_info.best_simd,
-            "cores": self.cpu_info.num_cores,
-            "threads": self.cpu_info.num_threads,
-            "c_extension": self.cpu_info.c_kernel_simd,
-            "timestamp": datetime.now().isoformat(),
-        }
-        print("="*70)
-        print("TurboQuantCPU Comprehensive Benchmark Suite")
-        print("="*70)
-        print(f"System: {self.system_info['cpu']}")
-        print(f"SIMD: {self.system_info['simd']}")
-        print(f"Cores: {self.system_info['cores']} physical / {self.system_info['threads']} logical")
-        print(f"C Extension: {self.system_info['c_extension']}")
-        print("="*70)
+    with torch.no_grad():
+        outputs = model(**inputs, labels=inputs["input_ids"])
+    return torch.exp(outputs.loss).item()
+
+
+def load_model(repo_id: str):
+    """Load HuggingFace model and tokenizer."""
+    tokenizer = AutoTokenizer.from_pretrained(repo_id, trust_remote_code=True)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
     
-    def save_results(self, filename: str = None):
-        """Save results to JSON."""
-        if filename is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"benchmark_comprehensive_{timestamp}.json"
-        
-        filepath = os.path.join(RESULTS_DIR, filename)
-        
-        data = {
-            "system": self.system_info,
-            "results": [asdict(r) for r in self.results]
-        }
-        
-        with open(filepath, 'w') as f:
-            json.dump(data, f, indent=2)
-        
-        print(f"\n[OK] Results saved to: {filepath}")
-        return filepath
+    model = AutoModelForCausalLM.from_pretrained(
+        repo_id,
+        torch_dtype=torch.float32,
+        device_map="cpu",
+        low_cpu_mem_usage=True,
+        trust_remote_code=True,
+    )
+    return model, tokenizer
+
+
+def benchmark_compression(
+    model,
+    tokenizer,
+    test_prompts: List[str],
+    bits: int,
+    mode: str = "prod"
+) -> Dict:
+    """Benchmark compression at specific bit-width."""
+    # Warmup
+    inputs = tokenizer(test_prompts[0], return_tensors="pt")
+    with torch.no_grad():
+        _ = model.generate(**inputs, max_new_tokens=10, do_sample=False)
     
-    def _timeit(self, func, repeats: int = 10, warmup: int = 3) -> Tuple[float, float]:
-        """Time a function with warmup."""
-        for _ in range(warmup):
-            func()
-        
-        times = []
-        for _ in range(repeats):
-            gc.collect()
-            t0 = time.perf_counter()
-            func()
-            t1 = time.perf_counter()
-            times.append((t1 - t0) * 1000)
-        
-        return np.mean(times), np.std(times)
+    # Baseline timing
+    times_baseline = []
+    for prompt in test_prompts:
+        inputs = tokenizer(prompt, return_tensors="pt")
+        start = time.time()
+        with torch.no_grad():
+            _ = model.generate(**inputs, max_new_tokens=20, do_sample=False)
+        times_baseline.append(time.time() - start)
     
-    def benchmark_correctness(self) -> Dict[str, Any]:
-        """Verify all mathematical guarantees."""
-        print("\n" + "="*70)
-        print("BENCHMARK 1/6: Correctness Verification")
-        print("="*70)
-        
-        results = {}
-        
-        # Run built-in correctness check
-        correctness = run_correctness_check(verbose=False)
-        
-        # FWHT tests
-        for d in [64, 128, 256]:
-            x = np.random.randn(100, d).astype(np.float32)
-            y = fwht_numpy(x.copy())
-            z = fwht_numpy(y.copy())
-            max_err = np.abs(z - x).max()
-            
-            result = BenchmarkResult(
-                name=f"fwht_self_inverse_d{d}",
-                metric="max_error",
-                value=float(max_err),
-                unit="absolute",
-                samples=100,
-                metadata={"dim": d}
-            )
-            self.results.append(result)
-            results[f"fwht_d{d}"] = max_err
-            status = "[OK]" if max_err < 1e-4 else "[FAIL]"
-            print(f"  FWHT self-inverse d={d:3d}: {max_err:.3e} {status}")
-        
-        # QJL unbiasedness
-        for seq_len in [512, 4096]:
-            keys = np.random.randn(seq_len, 8, 128).astype(np.float32)
-            qjl = QJLQuantizer(128, 8, layer_idx=0)
-            state = qjl.compress(keys)
-            
-            biases = []
-            for _ in range(50):
-                query = np.random.randn(1, 8, 128).astype(np.float32)
-                true = np.einsum("bhd,shd->bhs", query, keys)
-                est = qjl.scores(query, state)
-                biases.append(float((est - true).mean()))
-            
-            mean_bias = np.mean(biases)
-            std_bias = np.std(biases)
-            
-            result = BenchmarkResult(
-                name=f"qjl_unbiasedness_seq{seq_len}",
-                metric="mean_bias",
-                value=float(mean_bias),
-                unit="absolute",
-                std=float(std_bias),
-                samples=50,
-                metadata={"seq_len": seq_len}
-            )
-            self.results.append(result)
-            status = "[OK]" if abs(mean_bias) < 0.1 else "[FAIL]"
-            print(f"  QJL unbiasedness seq={seq_len:5d}: bias={mean_bias:+.4f}±{std_bias:.4f} {status}")
-        
-        return results
+    baseline_time = np.mean(times_baseline)
     
-    def benchmark_compression(self) -> Dict[str, Any]:
-        """Benchmark compression ratios."""
-        print("\n" + "="*70)
-        print("BENCHMARK 2/6: Compression Ratios")
-        print("="*70)
-        
-        results = {}
-        
-        configs = [
-            ("QJL-1bit", lambda d, h: QJLQuantizer(d, h, layer_idx=0), 1),
-            ("Turbo-MSE-2bit", lambda d, h: TurboQuantizer(d, h, mode="mse", bits=2, layer_idx=0), 2),
-            ("Turbo-MSE-4bit", lambda d, h: TurboQuantizer(d, h, mode="mse", bits=4, layer_idx=0), 4),
-            ("Turbo-PROD-4bit", lambda d, h: TurboQuantizer(d, h, mode="prod", bits=4, layer_idx=0), 4),
-            ("Polar-4bit", lambda d, h: PolarQuantizer(d, h, n_r_bits=2, n_theta_bits=2, layer_idx=0), 4),
-        ]
-        
-        compression_data = []
-        
-        for name, quantizer_fn, bits in configs:
-            for head_dim in [64, 128]:
-                for seq_len in [1024, 4096]:
-                    num_heads = 8
-                    
-                    keys = np.random.randn(seq_len, num_heads, head_dim).astype(np.float32)
-                    quantizer = quantizer_fn(head_dim, num_heads)
-                    state = quantizer.compress(keys)
-                    
-                    orig_bytes = seq_len * num_heads * head_dim * 2
-                    compressed_bytes = state.memory_bytes()
-                    ratio = orig_bytes / compressed_bytes
-                    
-                    result = BenchmarkResult(
-                        name=f"compression_{name}_d{head_dim}_seq{seq_len}",
-                        metric="compression_ratio",
-                        value=float(ratio),
-                        unit="x",
-                        samples=1,
-                        metadata={
-                            "method": name,
-                            "head_dim": head_dim,
-                            "seq_len": seq_len,
-                            "bits": bits,
-                            "orig_mb": orig_bytes / 1e6,
-                            "compressed_mb": compressed_bytes / 1e6
-                        }
-                    )
-                    self.results.append(result)
-                    
-                    compression_data.append({
-                        'method': name,
-                        'head_dim': head_dim,
-                        'seq_len': seq_len,
-                        'ratio': ratio
-                    })
-                    
-                    print(f"  {name:20s} d={head_dim:3d} seq={seq_len:5d}: {ratio:5.2f}×")
-        
-        # Create compression plot
-        self._plot_compression(compression_data)
-        
-        return results
+    # Apply TurboQuant
+    cache = patch_model(model, mode=mode, bits=bits, verbose=False)
     
-    def _plot_compression(self, data):
-        """Plot compression ratios."""
-        fig, ax = plt.subplots(figsize=(12, 6))
-        
-        methods = sorted(set(d['method'] for d in data))
-        head_dims = sorted(set(d['head_dim'] for d in data))
-        
-        x = np.arange(len(methods))
-        width = 0.35
-        
-        for i, head_dim in enumerate(head_dims):
-            ratios = [d['ratio'] for d in data if d['head_dim'] == head_dim and d['seq_len'] == 4096]
-            ax.bar(x + i*width, ratios, width, label=f'd={head_dim}')
-        
-        ax.set_xlabel('Method')
-        ax.set_ylabel('Compression Ratio (×)')
-        ax.set_title('Compression Ratios by Method and Dimension')
-        ax.set_xticks(x + width/2)
-        ax.set_xticklabels(methods, rotation=45, ha='right')
-        ax.legend()
-        ax.grid(axis='y', alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOTS_DIR, 'compression_ratios.png'), dpi=150)
-        plt.close()
-        print(f"  [OK] Saved compression plot")
+    # Compressed timing
+    times_compressed = []
+    for prompt in test_prompts:
+        inputs = tokenizer(prompt, return_tensors="pt")
+        start = time.time()
+        with torch.no_grad():
+            _ = model.generate(**inputs, max_new_tokens=20, do_sample=False)
+        times_compressed.append(time.time() - start)
     
-    def benchmark_speed(self) -> Dict[str, Any]:
-        """Benchmark inference speed."""
-        print("\n" + "="*70)
-        print("BENCHMARK 3/6: Inference Speed")
-        print("="*70)
+    compressed_time = np.mean(times_compressed)
+    overhead_pct = ((compressed_time / baseline_time) - 1) * 100
+    
+    mem_report = cache.memory_report()
+    
+    unpatch_model(model)
+    
+    return {
+        "bits": bits,
+        "mode": mode,
+        "baseline_time_ms": baseline_time * 1000,
+        "compressed_time_ms": compressed_time * 1000,
+        "overhead_pct": overhead_pct,
+        "compression_ratio": mem_report["compression_ratio"],
+        "compressed_mb": mem_report["compressed_MB"],
+        "original_mb": mem_report["original_fp16_MB"],
+        "tokens_per_sec": 20 / compressed_time,
+    }
+
+
+def benchmark_quality(
+    model,
+    tokenizer,
+    test_texts: List[str],
+    bits: int,
+    mode: str = "prod"
+) -> Dict:
+    """Benchmark quality preservation via perplexity."""
+    # Baseline perplexity
+    ppls_baseline = []
+    for text in test_texts:
+        ppl = calculate_perplexity(model, tokenizer, text)
+        ppls_baseline.append(ppl)
+    
+    ppl_baseline = np.mean(ppls_baseline)
+    
+    # Compressed perplexity
+    cache = patch_model(model, mode=mode, bits=bits, verbose=False)
+    
+    ppls_compressed = []
+    for text in test_texts:
+        ppl = calculate_perplexity(model, tokenizer, text)
+        ppls_compressed.append(ppl)
+    
+    ppl_compressed = np.mean(ppls_compressed)
+    
+    unpatch_model(model)
+    
+    quality_change_pct = ((ppl_compressed / ppl_baseline) - 1) * 100
+    
+    return {
+        "bits": bits,
+        "mode": mode,
+        "ppl_baseline": ppl_baseline,
+        "ppl_compressed": ppl_compressed,
+        "quality_change_pct": quality_change_pct,
+    }
+
+
+def benchmark_needle_in_haystack(
+    model,
+    tokenizer,
+    context_lengths: List[int] = None,
+    depths: List[float] = None,
+    num_trials: int = 2
+) -> Dict:
+    """
+    Needle-in-haystack benchmark for long context retrieval.
+    
+    Tests if model can retrieve hidden information at various
+    context lengths and depths.
+    """
+    if context_lengths is None:
+        context_lengths = [512, 1024, 2048]
+    if depths is None:
+        depths = [0.0, 0.25, 0.5, 0.75, 1.0]
+    
+    # Filler text for haystack
+    filler_sentences = [
+        "The weather today is quite pleasant with clear skies.",
+        "Economic indicators suggest steady growth this quarter.",
+        "Recent research has shown promising results in the field.",
+        "The project timeline has been adjusted to accommodate delays.",
+        "Scientists continue to explore new frontiers in technology.",
+        "Education remains a fundamental pillar of modern society.",
+        "Climate patterns have shifted significantly over recent decades.",
+        "Urban planning requires careful consideration of many factors.",
+        "Healthcare systems face increasing demands and challenges.",
+        "Transportation infrastructure requires ongoing maintenance.",
+    ] * 20  # Repeat to ensure enough content
+    
+    results = {
+        "baseline": {"total": 0, "correct": 0, "by_length": {}, "by_depth": {}},
+        "turboquant": {"total": 0, "correct": 0, "by_length": {}, "by_depth": {}},
+    }
+    
+    def create_haystack(length: int, needle: str, depth: float) -> str:
+        """Create haystack with needle at specific depth."""
+        # Estimate tokens needed
+        sample = " ".join(filler_sentences[:10])
+        tokens_per_sentence = len(tokenizer.encode(sample)) / 10
         
-        results = {}
+        num_sentences = int((length - len(tokenizer.encode(needle))) / tokens_per_sentence)
+        sentences = filler_sentences[:num_sentences]
         
-        head_dim, num_heads = 128, 8
+        insert_pos = int(len(sentences) * depth)
+        sentences.insert(insert_pos, needle)
         
-        configs = [
-            ("FP32", None),
-            ("QJL-1bit", lambda d, h: QJLQuantizer(d, h, layer_idx=0)),
-            ("Turbo-PROD-4bit", lambda d, h: TurboQuantizer(d, h, mode="prod", bits=4, layer_idx=0)),
-        ]
+        return " ".join(sentences)
+    
+    def test_retrieval(haystack: str, question: str, answer: str) -> bool:
+        """Test if model retrieves correct answer."""
+        prompt = f"Context: {haystack}\n\nQuestion: {question}\nAnswer:"
         
-        speed_data = {name: [] for name, _ in configs}
+        inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=4096)
+        with torch.no_grad():
+            outputs = model.generate(**inputs, max_new_tokens=15, do_sample=False)
         
-        for seq_len in [512, 1024, 2048, 4096, 8192]:
-            print(f"\n  Sequence length: {seq_len:,}")
-            
-            keys = np.random.randn(seq_len, num_heads, head_dim).astype(np.float32)
-            query = np.random.randn(1, num_heads, head_dim).astype(np.float32)
-            
-            for name, quantizer_fn in configs:
-                if quantizer_fn is None:
-                    # FP32 baseline
-                    mean_time, std_time = self._timeit(
-                        lambda: np.einsum("bhd,shd->bhs", query, keys),
-                        repeats=10, warmup=3
-                    )
-                else:
-                    quantizer = quantizer_fn(head_dim, num_heads)
-                    state = quantizer.compress(keys)
-                    
-                    mean_time, std_time = self._timeit(
-                        lambda: quantizer.scores(query, state),
-                        repeats=10, warmup=3
-                    )
+        generated = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        return answer.lower() in generated.lower()
+    
+    # Test baseline
+    print("  Testing baseline (FP16)...")
+    for length in context_lengths:
+        results["baseline"]["by_length"][length] = {"total": 0, "correct": 0}
+    for depth in depths:
+        results["baseline"]["by_depth"][depth] = {"total": 0, "correct": 0}
+    
+    for length in context_lengths:
+        for depth in depths:
+            for trial in range(num_trials):
+                needle_info = NEEDLE_PROMPTS[trial % len(NEEDLE_PROMPTS)]
+                haystack = create_haystack(length, needle_info, depth)
                 
-                result = BenchmarkResult(
-                    name=f"speed_{name}_seq{seq_len}",
-                    metric="time_ms",
-                    value=float(mean_time),
-                    unit="ms",
-                    std=float(std_time),
-                    samples=10,
-                    metadata={"method": name, "seq_len": seq_len}
-                )
-                self.results.append(result)
+                # Extract question and answer from needle
+                parts = needle_info.replace("The ", "").split(" is ")
+                question = f"What is the {parts[0]}?"
+                answer = parts[1].rstrip(".")
                 
-                speed_data[name].append((seq_len, mean_time))
-                print(f"    {name:20s}: {mean_time:7.3f} ± {std_time:5.3f} ms")
-        
-        # Create speed plot
-        self._plot_speed(speed_data)
-        
-        return results
+                correct = test_retrieval(haystack, question, answer)
+                
+                results["baseline"]["total"] += 1
+                results["baseline"]["correct"] += 1 if correct else 0
+                results["baseline"]["by_length"][length]["total"] += 1
+                results["baseline"]["by_length"][length]["correct"] += 1 if correct else 0
+                results["baseline"]["by_depth"][depth]["total"] += 1
+                results["baseline"]["by_depth"][depth]["correct"] += 1 if correct else 0
     
-    def _plot_speed(self, data):
-        """Plot speed comparison."""
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        for method, points in data.items():
-            if points:
-                seq_lens, times = zip(*points)
-                ax.plot(seq_lens, times, marker='o', label=method, linewidth=2)
-        
-        ax.set_xlabel('Sequence Length')
-        ax.set_ylabel('Time (ms)')
-        ax.set_title('Inference Speed vs Sequence Length')
-        ax.set_xscale('log', base=2)
-        ax.set_yscale('log')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOTS_DIR, 'speed_comparison.png'), dpi=150)
-        plt.close()
-        print(f"  [OK] Saved speed plot")
+    # Test TurboQuant 4-bit
+    print("  Testing TurboQuant 4-bit PROD...")
+    cache = patch_model(model, mode="prod", bits=4, verbose=False)
     
-    def benchmark_quality(self) -> Dict[str, Any]:
-        """Benchmark quality (accuracy vs baseline)."""
-        print("\n" + "="*70)
-        print("BENCHMARK 4/6: Quality (Accuracy vs Baseline)")
-        print("="*70)
+    for length in context_lengths:
+        results["turboquant"]["by_length"][length] = {"total": 0, "correct": 0}
+    for depth in depths:
+        results["turboquant"]["by_depth"][depth] = {"total": 0, "correct": 0}
+    
+    for length in context_lengths:
+        for depth in depths:
+            for trial in range(num_trials):
+                needle_info = NEEDLE_PROMPTS[trial % len(NEEDLE_PROMPTS)]
+                haystack = create_haystack(length, needle_info, depth)
+                
+                parts = needle_info.replace("The ", "").split(" is ")
+                question = f"What is the {parts[0]}?"
+                answer = parts[1].rstrip(".")
+                
+                correct = test_retrieval(haystack, question, answer)
+                
+                results["turboquant"]["total"] += 1
+                results["turboquant"]["correct"] += 1 if correct else 0
+                results["turboquant"]["by_length"][length]["total"] += 1
+                results["turboquant"]["by_length"][length]["correct"] += 1 if correct else 0
+                results["turboquant"]["by_depth"][depth]["total"] += 1
+                results["turboquant"]["by_depth"][depth]["correct"] += 1 if correct else 0
+    
+    unpatch_model(model)
+    
+    # Calculate scores
+    results["baseline"]["score_pct"] = (
+        results["baseline"]["correct"] / results["baseline"]["total"] * 100
+    )
+    results["turboquant"]["score_pct"] = (
+        results["turboquant"]["correct"] / results["turboquant"]["total"] * 100
+    )
+    
+    return results
+
+
+def benchmark_model(model_name: str, config: Dict) -> Optional[Dict]:
+    """Run full benchmark suite on a model."""
+    print(f"\n{'='*70}")
+    print(f"BENCHMARKING: {model_name}")
+    print(f"Repo: {config['repo_id']}")
+    print(f"Provider: {config['provider']} | Params: {config['params']}")
+    print(f"{'='*70}")
+    
+    results = {
+        "model": model_name,
+        "config": config,
+        "timestamp": datetime.now().isoformat(),
+    }
+    
+    try:
+        # Load model
+        print(f"\n[1/4] Loading model...")
+        mem_before = get_memory_mb()
+        model, tokenizer = load_model(config["repo_id"])
+        mem_after = get_memory_mb()
         
-        results = {}
-        head_dim, num_heads = 128, 8
-        seq_len = 4096
+        results["load_memory_mb"] = mem_after - mem_before
+        print(f"  Model memory: {results['load_memory_mb']:.1f} MB")
         
-        # Generate test data
-        keys = np.random.randn(seq_len, num_heads, head_dim).astype(np.float32)
+        # Compression benchmarks
+        print(f"\n[2/4] Compression benchmarks...")
+        results["compression"] = {}
         
-        # Test queries
-        n_queries = 100
-        queries = [np.random.randn(1, num_heads, head_dim).astype(np.float32) for _ in range(n_queries)]
+        for bits in [4, 2, 1]:
+            print(f"  Testing {bits}-bit PROD...")
+            comp_result = benchmark_compression(model, tokenizer, TEST_PROMPTS, bits, "prod")
+            results["compression"][f"{bits}bit"] = comp_result
+            print(f"    Ratio: {comp_result['compression_ratio']:.1f}×, "
+                  f"Overhead: {comp_result['overhead_pct']:+.1f}%")
         
-        # Compute true attention
-        true_scores = [np.einsum("bhd,shd->bhs", q, keys) for q in queries]
+        # Quality benchmarks
+        print(f"\n[3/4] Quality benchmarks...")
+        results["quality"] = {}
         
-        configs = [
-            ("QJL", QJLQuantizer(head_dim, num_heads, layer_idx=0)),
-            ("Turbo-MSE-4bit", TurboQuantizer(head_dim, num_heads, mode="mse", bits=4, layer_idx=1)),
-            ("Turbo-PROD-4bit", TurboQuantizer(head_dim, num_heads, mode="prod", bits=4, layer_idx=2)),
-            ("Polar-4bit", PolarQuantizer(head_dim, num_heads, n_r_bits=2, n_theta_bits=2, layer_idx=3)),
+        test_texts = [
+            "The quick brown fox jumps over the lazy dog.",
+            "Machine learning algorithms improve with more data.",
+            "Climate change affects global weather patterns significantly.",
         ]
         
-        quality_data = []
+        for bits in [4, 2]:
+            print(f"  Testing {bits}-bit quality...")
+            qual_result = benchmark_quality(model, tokenizer, test_texts, bits, "prod")
+            results["quality"][f"{bits}bit"] = qual_result
+            print(f"    PPL: {qual_result['ppl_baseline']:.2f} → {qual_result['ppl_compressed']:.2f} "
+                  f"({qual_result['quality_change_pct']:+.2f}%)")
         
-        for name, quantizer in configs:
-            state = quantizer.compress(keys)
-            
-            maes = []
-            biases = []
-            
-            for q, true in zip(queries, true_scores):
-                est = quantizer.scores(q, state)
-                mae = np.abs(est - true).mean()
-                bias = (est - true).mean()
-                maes.append(mae)
-                biases.append(bias)
-            
-            mean_mae = np.mean(maes)
-            std_mae = np.std(maes)
-            mean_bias = np.mean(biases)
-            std_bias = np.std(biases)
-            
-            result = BenchmarkResult(
-                name=f"quality_{name}",
-                metric="mae",
-                value=float(mean_mae),
-                unit="absolute",
-                std=float(std_mae),
-                samples=n_queries,
-                metadata={
-                    "method": name,
-                    "mean_bias": float(mean_bias),
-                    "std_bias": float(std_bias)
-                }
-            )
-            self.results.append(result)
-            
-            quality_data.append({
-                'method': name,
-                'mae': mean_mae,
-                'bias': abs(mean_bias)
-            })
-            
-            print(f"  {name:20s}: MAE={mean_mae:.4f}±{std_mae:.4f}, Bias={mean_bias:+.4f}±{std_bias:.4f}")
+        # Needle-in-haystack
+        print(f"\n[4/4] Needle-in-haystack (long context)...")
+        needle_results = benchmark_needle_in_haystack(
+            model, tokenizer,
+            context_lengths=[512, 1024],
+            depths=[0.0, 0.5, 1.0],
+            num_trials=2
+        )
+        results["needle_in_haystack"] = needle_results
+        print(f"    Baseline: {needle_results['baseline']['score_pct']:.1f}%, "
+              f"4-bit: {needle_results['turboquant']['score_pct']:.1f}%")
         
-        # Create quality plot
-        self._plot_quality(quality_data)
+        # Cleanup
+        del model, tokenizer
+        gc.collect()
+        
+        print(f"\n{'='*70}")
+        print(f"✓ {model_name} benchmark complete!")
+        print(f"{'='*70}")
         
         return results
+        
+    except Exception as e:
+        print(f"\n✗ ERROR benchmarking {model_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def print_summary(all_results: List[Dict]):
+    """Print comprehensive summary table."""
+    print("\n" + "="*80)
+    print("COMPREHENSIVE BENCHMARK SUMMARY")
+    print("="*80)
     
-    def _plot_quality(self, data):
-        """Plot quality comparison."""
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-        
-        methods = [d['method'] for d in data]
-        maes = [d['mae'] for d in data]
-        biases = [d['bias'] for d in data]
-        
-        # MAE plot
-        ax1.bar(methods, maes, color='steelblue')
-        ax1.set_ylabel('Mean Absolute Error')
-        ax1.set_title('Reconstruction Error by Method')
-        ax1.tick_params(axis='x', rotation=45)
-        ax1.grid(axis='y', alpha=0.3)
-        
-        # Bias plot
-        ax2.bar(methods, biases, color='coral')
-        ax2.set_ylabel('|Bias|')
-        ax2.set_title('Attention Score Bias by Method')
-        ax2.tick_params(axis='x', rotation=45)
-        ax2.grid(axis='y', alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOTS_DIR, 'quality_comparison.png'), dpi=150)
-        plt.close()
-        print(f"  [OK] Saved quality plot")
+    # Compression table
+    print("\n📊 COMPRESSION RATIOS")
+    print("-"*80)
+    print(f"{'Model':<20} {'4-bit':<12} {'2-bit':<12} {'1-bit':<12}")
+    print("-"*80)
     
-    def benchmark_long_context(self) -> Dict[str, Any]:
-        """Benchmark long context behavior."""
-        print("\n" + "="*70)
-        print("BENCHMARK 5/6: Long Context Scaling")
-        print("="*70)
-        
-        results = {}
-        head_dim, num_heads = 128, 8
-        
-        quantizer = TurboQuantizer(head_dim, num_heads, mode="prod", bits=4, layer_idx=0)
-        
-        context_lengths = [1024, 2048, 4096, 8192, 16384, 32768]
-        memory_data = []
-        
-        for seq_len in context_lengths:
-            keys = np.random.randn(seq_len, num_heads, head_dim).astype(np.float32)
-            state = quantizer.compress(keys)
-            
-            orig_mb = seq_len * num_heads * head_dim * 2 / 1e6
-            comp_mb = state.memory_bytes() / 1e6
-            ratio = orig_mb / comp_mb
-            
-            result = BenchmarkResult(
-                name=f"long_context_seq{seq_len}",
-                metric="memory_mb",
-                value=float(comp_mb),
-                unit="MB",
-                samples=1,
-                metadata={
-                    "seq_len": seq_len,
-                    "orig_mb": orig_mb,
-                    "ratio": ratio
-                }
-            )
-            self.results.append(result)
-            
-            memory_data.append({
-                'seq_len': seq_len,
-                'orig': orig_mb,
-                'compressed': comp_mb
-            })
-            
-            print(f"  Context {seq_len:6d}: {orig_mb:8.1f} MB → {comp_mb:8.1f} MB ({ratio:.1f}×)")
-        
-        # Create long context plot
-        self._plot_long_context(memory_data)
-        
-        return results
+    for r in all_results:
+        if r and "compression" in r:
+            model = r['model']
+            c4 = r['compression']['4bit']['compression_ratio']
+            c2 = r['compression']['2bit']['compression_ratio']
+            c1 = r['compression']['1bit']['compression_ratio']
+            print(f"{model:<20} {c4:>10.1f}× {c2:>10.1f}× {c1:>10.1f}×")
     
-    def _plot_long_context(self, data):
-        """Plot long context scaling."""
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        seq_lens = [d['seq_len'] for d in data]
-        orig = [d['orig'] for d in data]
-        compressed = [d['compressed'] for d in data]
-        
-        ax.plot(seq_lens, orig, marker='o', label='FP16 Baseline', linewidth=2)
-        ax.plot(seq_lens, compressed, marker='s', label='Turbo-4bit', linewidth=2)
-        
-        ax.set_xlabel('Context Length')
-        ax.set_ylabel('Memory (MB)')
-        ax.set_title('Memory Scaling with Context Length')
-        ax.set_xscale('log', base=2)
-        ax.set_yscale('log')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOTS_DIR, 'long_context_scaling.png'), dpi=150)
-        plt.close()
-        print(f"  [OK] Saved long context plot")
+    # Speed overhead table
+    print("\n⚡ SPEED OVERHEAD (%)")
+    print("-"*80)
+    print(f"{'Model':<20} {'4-bit':<12} {'2-bit':<12} {'1-bit':<12}")
+    print("-"*80)
     
-    def benchmark_real_models(self) -> Dict[str, Any]:
-        """Benchmark with real model configurations."""
-        print("\n" + "="*70)
-        print("BENCHMARK 6/6: Real Model Configurations")
-        print("="*70)
-        
-        results = {}
-        
-        models = [
-            ("Qwen2.5-0.5B", 24, 2, 14, 64),
-            ("Qwen2.5-1.5B", 28, 2, 12, 128),
-            ("Qwen2.5-7B", 28, 4, 28, 128),
-            ("Llama-3.1-8B", 32, 8, 32, 128),
-            ("Mistral-7B", 32, 8, 32, 128),
-            ("Llama-3.1-70B", 80, 8, 64, 128),
-        ]
-        
-        seq_len = 4096
-        model_data = []
-        
-        for name, layers, kv_heads, q_heads, head_dim in models:
-            quantizer = TurboQuantizer(
-                head_dim=head_dim,
-                num_kv_heads=kv_heads,
-                num_q_heads=q_heads,
-                mode="prod",
-                bits=4,
-                layer_idx=0
-            )
-            
-            # Memory for one layer
-            report = quantizer.memory_report(seq_len)
-            
-            # Scale to full model (keys + values, both K and V)
-            orig_total = report["original_fp16_MB"] * layers * 2  # K + V
-            comp_total = report["compressed_MB"] * layers * 2
-            
-            result = BenchmarkResult(
-                name=f"model_{name}",
-                metric="memory_mb",
-                value=float(comp_total),
-                unit="MB",
-                samples=1,
-                metadata={
-                    "model": name,
-                    "layers": layers,
-                    "kv_heads": kv_heads,
-                    "head_dim": head_dim,
-                    "orig_mb": orig_total,
-                    "ratio": orig_total / comp_total
-                }
-            )
-            self.results.append(result)
-            
-            model_data.append({
-                'model': name,
-                'orig': orig_total,
-                'compressed': comp_total
-            })
-            
-            print(f"  {name:20s}: {orig_total:7.1f} MB → {comp_total:7.1f} MB ({orig_total/comp_total:.1f}×)")
-        
-        # Create model comparison plot
-        self._plot_models(model_data)
-        
-        return results
+    for r in all_results:
+        if r and "compression" in r:
+            model = r['model']
+            o4 = r['compression']['4bit']['overhead_pct']
+            o2 = r['compression']['2bit']['overhead_pct']
+            o1 = r['compression']['1bit']['overhead_pct']
+            print(f"{model:<20} {o4:>+10.1f}% {o2:>+10.1f}% {o1:>+10.1f}%")
     
-    def _plot_models(self, data):
-        """Plot model comparison."""
-        fig, ax = plt.subplots(figsize=(12, 6))
-        
-        models = [d['model'] for d in data]
-        orig = [d['orig'] for d in data]
-        compressed = [d['compressed'] for d in data]
-        
-        x = np.arange(len(models))
-        width = 0.35
-        
-        ax.bar(x - width/2, orig, width, label='FP16 Baseline', color='lightcoral')
-        ax.bar(x + width/2, compressed, width, label='Turbo-4bit', color='steelblue')
-        
-        ax.set_ylabel('Memory (MB)')
-        ax.set_title('Memory Usage: Real Model Configurations (Context=4096)')
-        ax.set_xticks(x)
-        ax.set_xticklabels(models, rotation=45, ha='right')
-        ax.legend()
-        ax.grid(axis='y', alpha=0.3)
-        
-        plt.tight_layout()
-        plt.savefig(os.path.join(PLOTS_DIR, 'model_comparison.png'), dpi=150)
-        plt.close()
-        print(f"  [OK] Saved model comparison plot")
+    # Quality table
+    print("\n🎯 QUALITY PRESERVATION (Perplexity Change)")
+    print("-"*80)
+    print(f"{'Model':<20} {'4-bit':<15} {'2-bit':<15}")
+    print("-"*80)
     
-    def generate_summary(self):
-        """Generate summary report."""
-        print("\n" + "="*70)
-        print("BENCHMARK SUMMARY")
-        print("="*70)
-        
-        # Get key metrics
-        qjl_compression = [r.value for r in self.results 
-                          if r.name.startswith("compression_QJL") and r.metadata.get("head_dim") == 128]
-        prod_compression = [r.value for r in self.results 
-                           if r.name.startswith("compression_Turbo-PROD") and r.metadata.get("head_dim") == 128]
-        
-        if qjl_compression:
-            print(f"\nQJL Compression (d=128): {np.mean(qjl_compression):.1f}×")
-        if prod_compression:
-            print(f"Turbo-PROD Compression (d=128): {np.mean(prod_compression):.1f}×")
-        
-        print(f"\nTotal benchmarks run: {len(self.results)}")
-        print(f"Plots generated in: {PLOTS_DIR}")
-        print(f"Results saved in: {RESULTS_DIR}")
-        print("="*70)
+    for r in all_results:
+        if r and "quality" in r:
+            model = r['model']
+            q4 = r['quality']['4bit']['quality_change_pct']
+            q2 = r['quality']['2bit']['quality_change_pct']
+            print(f"{model:<20} {q4:>+13.2f}% {q2:>+13.2f}%")
     
-    def run_all(self):
-        """Run all benchmarks."""
-        self.benchmark_correctness()
-        self.benchmark_compression()
-        self.benchmark_speed()
-        self.benchmark_quality()
-        self.benchmark_long_context()
-        self.benchmark_real_models()
-        
-        self.generate_summary()
-        
-        # Save results
-        filepath = self.save_results()
-        
-        return self.results
+    # Needle-in-haystack table
+    print("\n🪡 NEEDLE-IN-HAYSTACK (Retrieval Accuracy)")
+    print("-"*80)
+    print(f"{'Model':<20} {'Baseline':<15} {'4-bit Turbo':<15} {'Delta':<10}")
+    print("-"*80)
+    
+    for r in all_results:
+        if r and "needle_in_haystack" in r:
+            model = r['model']
+            base = r['needle_in_haystack']['baseline']['score_pct']
+            tq = r['needle_in_haystack']['turboquant']['score_pct']
+            delta = tq - base
+            print(f"{model:<20} {base:>13.1f}% {tq:>13.1f}% {delta:>+8.1f}%")
+    
+    print("\n" + "="*80)
+
+
+def save_results(all_results: List[Dict]):
+    """Save results to JSON."""
+    output = {
+        "benchmark": "TurboQuantCPU Comprehensive",
+        "timestamp": datetime.now().isoformat(),
+        "models_tested": list(BENCHMARK_MODELS.keys()),
+        "results": [r for r in all_results if r],
+    }
+    
+    os.makedirs("results", exist_ok=True)
+    filename = f"results/comprehensive_benchmark_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    
+    with open(filename, 'w') as f:
+        json.dump(output, f, indent=2)
+    
+    print(f"\n💾 Results saved to: {filename}")
 
 
 def main():
-    """Run comprehensive benchmarks."""
-    benchmark = ComprehensiveBenchmark()
-    results = benchmark.run_all()
+    print("="*80)
+    print("TurboQuantCPU - Comprehensive Benchmark (3 Models)")
+    print("="*80)
+    print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Models: {', '.join(BENCHMARK_MODELS.keys())}")
+    print()
     
-    print("\n" + "="*70)
-    print("All benchmarks completed successfully!")
-    print("="*70)
+    all_results = []
+    
+    for model_key, config in BENCHMARK_MODELS.items():
+        result = benchmark_model(model_key, config)
+        if result:
+            all_results.append(result)
+    
+    # Print summary
+    if all_results:
+        print_summary(all_results)
+        save_results(all_results)
+    
+    print("\n" + "="*80)
+    print("BENCHMARK COMPLETE")
+    print("="*80)
+    print(f"Models tested: {len(all_results)}/{len(BENCHMARK_MODELS)}")
+    print(f"Completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*80)
 
 
 if __name__ == "__main__":

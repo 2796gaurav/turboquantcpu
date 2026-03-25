@@ -1,0 +1,40 @@
+{
+  "timestamp": "2026-03-25T16:18:13.797309",
+  "results": [
+    {
+      "model": "Llama-3.2-1B",
+      "config": {
+        "name": "meta-llama/Llama-3.2-1B",
+        "params": "1B",
+        "layers": 16,
+        "kv_heads": 8,
+        "head_dim": 64,
+        "license": "Llama 3.2 Community"
+      },
+      "load": {
+        "time_s": 1774435613.8018963,
+        "memory_mb": 3095.109375
+      },
+      "baseline": {
+        "avg_time_s": 8.420179526011148
+      },
+      "turboquant_4bit": {
+        "avg_time_s": 9.620619138081869,
+        "overhead_pct": 14.2566985461817,
+        "kv_cache_mb": 1.456128,
+        "compression_ratio": 1.7777777777777777
+      },
+      "turboquant_1bit": {
+        "avg_time_s": 7.890607674916585,
+        "overhead_pct": -6.289317816308304,
+        "kv_cache_mb": 0.788736,
+        "compression_ratio": 3.282051282051282
+      },
+      "quality": {
+        "perplexity_baseline": 7.051145553588867,
+        "perplexity_4bit": 7.051145553588867,
+        "difference_pct": 0.0
+      }
+    }
+  ]
+}
