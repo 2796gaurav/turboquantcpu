@@ -58,11 +58,18 @@ def _get_dims(model: nn.Module) -> dict:
     if cfg is None:
         raise AttributeError("Model has no .config attribute.")
 
+    # For multimodal models (e.g. Gemma-4), text dims live under text_config
+    text_cfg = getattr(cfg, "text_config", None)
+
     def _get(*attrs, default=None):
         for a in attrs:
             v = getattr(cfg, a, None)
             if v is not None:
                 return v
+            if text_cfg is not None:
+                v = getattr(text_cfg, a, None)
+                if v is not None:
+                    return v
         return default
 
     num_layers  = _get("num_hidden_layers", "n_layer", "num_layers")
